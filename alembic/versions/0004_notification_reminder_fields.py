@@ -1,7 +1,7 @@
 """Add reminder metadata fields to notifications.
 
-Revision ID: 0004_notification_reminder_fields
-Revises: 0003_payment_request_provisioning_status
+Revision ID: 0004_notification_fields
+Revises: 0003_provisioning_status
 Create Date: 2026-06-08
 """
 
@@ -12,8 +12,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0004_notification_reminder_fields"
-down_revision: Union[str, None] = "0003_payment_request_provisioning_status"
+revision: str = "0004_notification_fields"
+down_revision: Union[str, None] = "0003_provisioning_status"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
