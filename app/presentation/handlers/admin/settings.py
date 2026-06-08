@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from aiogram import Bot, F, Router
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -33,22 +33,10 @@ from app.presentation.keyboards.admin_settings import (
 )
 from app.presentation.states.admin_instruction_settings import InstructionSettingsStates
 from app.presentation.states.admin_notification_settings import AdminNotificationSettingsStates
-from app.presentation.states.admin_payment_settings import PaymentSettingsStates
-from app.presentation.states.admin_support_settings import SupportSettingsStates
 
 router = Router(name="admin_settings")
 router.message.filter(IsAdminFilter())
 router.callback_query.filter(IsAdminCallbackFilter())
-
-SETTINGS_FSM_STATES = (
-    AdminNotificationSettingsStates.waiting_days,
-    PaymentSettingsStates.waiting_details,
-    SupportSettingsStates.waiting_username,
-    SupportSettingsStates.waiting_url,
-    SupportSettingsStates.waiting_text,
-    InstructionSettingsStates.waiting_text,
-    InstructionSettingsStates.waiting_url,
-)
 
 
 @router.message(F.text == "⚙️ Настройки")
@@ -177,7 +165,11 @@ async def handle_change_days_start(callback: CallbackQuery, state: FSMContext) -
     await callback.answer()
 
 
-@router.message(StateFilter(AdminNotificationSettingsStates.waiting_days), F.text)
+@router.message(
+    StateFilter(AdminNotificationSettingsStates.waiting_days),
+    F.text,
+    ~F.text.startswith("/"),
+)
 async def handle_change_days_value(
     message: Message,
     state: FSMContext,
@@ -185,8 +177,6 @@ async def handle_change_days_value(
     admin_log_service: AdminLogService,
 ) -> None:
     if message.from_user is None or message.text is None:
-        return
-    if message.text.startswith("/"):
         return
     try:
         days = settings_service.parse_notification_days(message.text)
@@ -273,12 +263,3 @@ async def handle_send_test(
     )
     await callback.message.answer(text)
     await callback.answer()
-
-
-@router.message(Command("cancel"), StateFilter(*SETTINGS_FSM_STATES))
-async def handle_settings_fsm_cancel(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer(
-        "Отменено.",
-        reply_markup=settings_home_keyboard(),
-    )

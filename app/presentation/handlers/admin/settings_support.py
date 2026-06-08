@@ -73,14 +73,14 @@ async def handle_support_text_start(callback: CallbackQuery, state: FSMContext) 
     await callback.answer()
 
 
-@router.message(StateFilter(SupportSettingsStates.waiting_username), F.text)
+@router.message(StateFilter(SupportSettingsStates.waiting_username), F.text, ~F.text.startswith("/"))
 async def handle_support_username_value(
     message: Message,
     state: FSMContext,
     settings_service: SettingsService,
     admin_log_service: AdminLogService,
 ) -> None:
-    if message.from_user is None or message.text is None or message.text.startswith("/"):
+    if message.from_user is None or message.text is None:
         return
     try:
         username = settings_service.normalize_support_username(message.text)
@@ -92,14 +92,14 @@ async def handle_support_username_value(
     await _finish_support_edit(message, state, settings_service, admin_log_service, field="support_username")
 
 
-@router.message(StateFilter(SupportSettingsStates.waiting_url), F.text)
+@router.message(StateFilter(SupportSettingsStates.waiting_url), F.text, ~F.text.startswith("/"))
 async def handle_support_url_value(
     message: Message,
     state: FSMContext,
     settings_service: SettingsService,
     admin_log_service: AdminLogService,
 ) -> None:
-    if message.from_user is None or message.text is None or message.text.startswith("/"):
+    if message.from_user is None or message.text is None:
         return
     raw = message.text.strip()
     try:
@@ -112,14 +112,14 @@ async def handle_support_url_value(
     await _finish_support_edit(message, state, settings_service, admin_log_service, field="support_url")
 
 
-@router.message(StateFilter(SupportSettingsStates.waiting_text), F.text)
+@router.message(StateFilter(SupportSettingsStates.waiting_text), F.text, ~F.text.startswith("/"))
 async def handle_support_text_value(
     message: Message,
     state: FSMContext,
     settings_service: SettingsService,
     admin_log_service: AdminLogService,
 ) -> None:
-    if message.from_user is None or message.text is None or message.text.startswith("/"):
+    if message.from_user is None or message.text is None:
         return
     raw = message.text.strip()
     text = "" if raw == "-" else raw

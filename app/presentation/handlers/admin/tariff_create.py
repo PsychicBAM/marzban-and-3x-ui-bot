@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -180,9 +180,3 @@ async def create_cancel(callback: CallbackQuery, state: FSMContext, plan_service
         await callback.message.answer("❌ Создание тарифа отменено.")
     await send_tariff_list(callback, plan_service)
 
-
-@router.message(Command("cancel"), StateFilter(TariffCreateStates))
-async def create_cancel_command(message: Message, state: FSMContext, plan_service: PlanService) -> None:
-    await state.clear()
-    await message.answer("❌ Создание тарифа отменено.")
-    await send_tariff_list(message, plan_service)

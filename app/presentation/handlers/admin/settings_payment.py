@@ -46,7 +46,7 @@ async def handle_payment_edit_start(callback: CallbackQuery, state: FSMContext) 
     await callback.answer()
 
 
-@router.message(StateFilter(PaymentSettingsStates.waiting_details), F.text)
+@router.message(StateFilter(PaymentSettingsStates.waiting_details), F.text, ~F.text.startswith("/"))
 async def handle_payment_edit_value(
     message: Message,
     state: FSMContext,
@@ -54,8 +54,6 @@ async def handle_payment_edit_value(
     admin_log_service: AdminLogService,
 ) -> None:
     if message.from_user is None or message.text is None:
-        return
-    if message.text.startswith("/"):
         return
     try:
         await settings_service.set_payment_details(message.text)

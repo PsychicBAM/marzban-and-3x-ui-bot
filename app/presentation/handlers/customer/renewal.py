@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -175,7 +175,7 @@ async def handle_renew_receipt_document(
     )
 
 
-@router.message(StateFilter(RenewReceiptStates.waiting_receipt), F.text)
+@router.message(StateFilter(RenewReceiptStates.waiting_receipt), F.text, ~F.text.startswith("/"))
 async def handle_renew_receipt_text(
     message: Message,
     state: FSMContext,
@@ -184,7 +184,7 @@ async def handle_renew_receipt_text(
     if message.from_user is None:
         return
     text = (message.text or "").strip()
-    if not text or text.startswith("/"):
+    if not text:
         await message.answer(INVALID_RECEIPT_TEXT)
         return
     await _submit_renew_receipt(
@@ -201,12 +201,6 @@ async def handle_renew_receipt_text(
 @router.message(StateFilter(RenewReceiptStates.waiting_receipt))
 async def handle_renew_receipt_invalid(message: Message) -> None:
     await message.answer(INVALID_RECEIPT_TEXT)
-
-
-@router.message(Command("cancel"), StateFilter(RenewReceiptStates.waiting_receipt))
-async def handle_renew_receipt_cancel(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer("❌ Отправка заявки отменена.", reply_markup=customer_main_keyboard())
 
 
 async def start_renewal_flow(

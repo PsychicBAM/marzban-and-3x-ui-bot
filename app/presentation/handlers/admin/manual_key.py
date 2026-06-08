@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from aiogram import Bot, F, Router
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -56,15 +56,6 @@ router = Router(name="admin_manual_key")
 router.message.filter(IsAdminFilter())
 router.callback_query.filter(IsAdminCallbackFilter())
 
-FSM_STATES = (
-    AdminManualKeyStates.waiting_user_search,
-    AdminManualKeyStates.waiting_account_name,
-    AdminManualKeyStates.waiting_custom_duration,
-    AdminManualKeyStates.waiting_custom_traffic,
-    AdminManualKeyStates.waiting_custom_ip,
-    AdminManualKeyStates.waiting_custom_comment,
-)
-
 
 @router.message(F.text == "➕ Создать ключ")
 async def handle_create_key_start(message: Message, state: FSMContext) -> None:
@@ -111,13 +102,13 @@ async def handle_mode_standalone(callback: CallbackQuery, state: FSMContext) -> 
     await callback.answer()
 
 
-@router.message(StateFilter(AdminManualKeyStates.waiting_user_search), F.text)
+@router.message(StateFilter(AdminManualKeyStates.waiting_user_search), F.text, ~F.text.startswith("/"))
 async def handle_user_search(
     message: Message,
     state: FSMContext,
     flow_service: ManualKeyFlowService,
 ) -> None:
-    if message.text is None or message.text.startswith("/"):
+    if message.text is None:
         return
     users = await flow_service.search_users(message.text.strip())
     if not users:
@@ -212,14 +203,14 @@ async def handle_name_edit(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.message(StateFilter(AdminManualKeyStates.waiting_account_name), F.text)
+@router.message(StateFilter(AdminManualKeyStates.waiting_account_name), F.text, ~F.text.startswith("/"))
 async def handle_account_name_input(
     message: Message,
     state: FSMContext,
     flow_service: ManualKeyFlowService,
     manual_provisioning_service: ManualProvisioningService,
 ) -> None:
-    if message.text is None or message.text.startswith("/"):
+    if message.text is None:
         return
     try:
         account_name = flow_service.validate_account_name(message.text)
@@ -302,9 +293,9 @@ async def handle_plan_selected(
     await callback.answer()
 
 
-@router.message(StateFilter(AdminManualKeyStates.waiting_custom_duration), F.text)
+@router.message(StateFilter(AdminManualKeyStates.waiting_custom_duration), F.text, ~F.text.startswith("/"))
 async def handle_custom_duration(message: Message, state: FSMContext, flow_service: ManualKeyFlowService) -> None:
-    if message.text is None or message.text.startswith("/"):
+    if message.text is None:
         return
     try:
         days = flow_service.validate_custom_duration(message.text)
@@ -318,9 +309,9 @@ async def handle_custom_duration(message: Message, state: FSMContext, flow_servi
     )
 
 
-@router.message(StateFilter(AdminManualKeyStates.waiting_custom_traffic), F.text)
+@router.message(StateFilter(AdminManualKeyStates.waiting_custom_traffic), F.text, ~F.text.startswith("/"))
 async def handle_custom_traffic(message: Message, state: FSMContext, flow_service: ManualKeyFlowService) -> None:
-    if message.text is None or message.text.startswith("/"):
+    if message.text is None:
         return
     try:
         traffic = flow_service.validate_custom_int(message.text, field="Трафик")
@@ -334,9 +325,9 @@ async def handle_custom_traffic(message: Message, state: FSMContext, flow_servic
     )
 
 
-@router.message(StateFilter(AdminManualKeyStates.waiting_custom_ip), F.text)
+@router.message(StateFilter(AdminManualKeyStates.waiting_custom_ip), F.text, ~F.text.startswith("/"))
 async def handle_custom_ip(message: Message, state: FSMContext, flow_service: ManualKeyFlowService) -> None:
-    if message.text is None or message.text.startswith("/"):
+    if message.text is None:
         return
     try:
         ip_limit = flow_service.validate_custom_int(message.text, field="Лимит устройств")
@@ -379,14 +370,14 @@ async def handle_custom_issuing(callback: CallbackQuery, state: FSMContext, flow
     await callback.answer()
 
 
-@router.message(StateFilter(AdminManualKeyStates.waiting_custom_comment), F.text)
+@router.message(StateFilter(AdminManualKeyStates.waiting_custom_comment), F.text, ~F.text.startswith("/"))
 async def handle_custom_comment(
     message: Message,
     state: FSMContext,
     flow_service: ManualKeyFlowService,
     manual_provisioning_service: ManualProvisioningService,
 ) -> None:
-    if message.text is None or message.text.startswith("/"):
+    if message.text is None:
         return
     await state.update_data(admin_comment=message.text.strip())
     await state.set_state(None)
@@ -531,12 +522,6 @@ async def handle_done_admin(callback: CallbackQuery, state: FSMContext) -> None:
     if callback.message is not None:
         await callback.message.answer("Админ-панель", reply_markup=admin_main_keyboard())
     await callback.answer()
-
-
-@router.message(Command("cancel"), StateFilter(*FSM_STATES))
-async def handle_fsm_cancel(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer("Отменено.", reply_markup=admin_main_keyboard())
 
 
 async def _prompt_account_name(

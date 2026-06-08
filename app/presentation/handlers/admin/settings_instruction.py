@@ -87,14 +87,14 @@ async def handle_instruction_toggle(
     await callback.answer("Сохранено.")
 
 
-@router.message(StateFilter(InstructionSettingsStates.waiting_text), F.text)
+@router.message(StateFilter(InstructionSettingsStates.waiting_text), F.text, ~F.text.startswith("/"))
 async def handle_instruction_text_value(
     message: Message,
     state: FSMContext,
     settings_service: SettingsService,
     admin_log_service: AdminLogService,
 ) -> None:
-    if message.from_user is None or message.text is None or message.text.startswith("/"):
+    if message.from_user is None or message.text is None:
         return
     raw = message.text.strip()
     text = "" if raw == "-" else raw
@@ -108,14 +108,14 @@ async def handle_instruction_text_value(
     )
 
 
-@router.message(StateFilter(InstructionSettingsStates.waiting_url), F.text)
+@router.message(StateFilter(InstructionSettingsStates.waiting_url), F.text, ~F.text.startswith("/"))
 async def handle_instruction_url_value(
     message: Message,
     state: FSMContext,
     settings_service: SettingsService,
     admin_log_service: AdminLogService,
 ) -> None:
-    if message.from_user is None or message.text is None or message.text.startswith("/"):
+    if message.from_user is None or message.text is None:
         return
     raw = message.text.strip()
     try:

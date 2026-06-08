@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from aiogram import Bot, F, Router
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -157,13 +157,13 @@ async def handle_search_start(callback: CallbackQuery, state: FSMContext) -> Non
     await callback.answer()
 
 
-@router.message(StateFilter(AdminClientSearchStates.waiting_query), F.text)
+@router.message(StateFilter(AdminClientSearchStates.waiting_query), F.text, ~F.text.startswith("/"))
 async def handle_search_query(
     message: Message,
     state: FSMContext,
     admin_customer_service: AdminCustomerService,
 ) -> None:
-    if message.text and message.text.startswith("/"):
+    if not message.text:
         return
     query = (message.text or "").strip()
     if not query:
@@ -179,11 +179,6 @@ async def handle_search_query(
         reply_markup=search_results_keyboard(results),
     )
 
-
-@router.message(Command("cancel"), StateFilter(AdminClientSearchStates.waiting_query))
-async def handle_search_cancel(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer("Поиск отменён.", reply_markup=admin_main_keyboard())
 
 
 @router.callback_query(F.data.startswith(ACL_ACT_LINK))
@@ -318,7 +313,7 @@ async def handle_extend_start(callback: CallbackQuery, state: FSMContext) -> Non
     await callback.answer()
 
 
-@router.message(StateFilter(AdminClientExtendStates.waiting_days), F.text)
+@router.message(StateFilter(AdminClientExtendStates.waiting_days), F.text, ~F.text.startswith("/"))
 async def handle_extend_days(
     message: Message,
     state: FSMContext,
@@ -326,8 +321,6 @@ async def handle_extend_days(
     admin_customer_service: AdminCustomerService,
 ) -> None:
     if message.from_user is None or message.text is None:
-        return
-    if message.text.startswith("/"):
         return
     try:
         days = int(message.text.strip())
@@ -372,7 +365,7 @@ async def handle_ip_limit_start(callback: CallbackQuery, state: FSMContext) -> N
     await callback.answer()
 
 
-@router.message(StateFilter(AdminClientIpLimitStates.waiting_value), F.text)
+@router.message(StateFilter(AdminClientIpLimitStates.waiting_value), F.text, ~F.text.startswith("/"))
 async def handle_ip_limit_value(
     message: Message,
     state: FSMContext,
@@ -381,8 +374,6 @@ async def handle_ip_limit_value(
     plan_service: PlanService,
 ) -> None:
     if message.from_user is None or message.text is None:
-        return
-    if message.text.startswith("/"):
         return
     try:
         new_limit = plan_service.parse_ip_limit(message.text.strip())
@@ -406,15 +397,6 @@ async def handle_ip_limit_value(
         await message.answer(exc.message)
         return
     await message.answer(outcome.admin_message, reply_markup=admin_main_keyboard())
-
-
-@router.message(
-    Command("cancel"),
-    StateFilter(AdminClientExtendStates.waiting_days, AdminClientIpLimitStates.waiting_value),
-)
-async def handle_fsm_cancel(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer("Отменено.", reply_markup=admin_main_keyboard())
 
 
 async def _run_action(

@@ -27,7 +27,7 @@ class PaymentRequest(Base):
         default=PaymentRequestType.PURCHASE.value,
     )
     status: Mapped[str] = mapped_column(
-        String(16),
+        String(64),
         nullable=False,
         default=PaymentRequestStatus.PENDING.value,
         index=True,

@@ -8,6 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from app.config.settings import Settings, get_settings
 from app.presentation.bot.middlewares.database import DatabaseMiddleware
 from app.presentation.handlers import build_root_router
+from app.presentation.handlers.global_cancel import router as global_cancel_router
 
 
 def create_bot(settings: Settings | None = None) -> Bot:
@@ -23,5 +24,6 @@ def create_dispatcher(settings: Settings | None = None) -> Dispatcher:
     dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher["settings"] = cfg
     dispatcher.update.middleware(DatabaseMiddleware())
+    dispatcher.include_router(global_cancel_router)
     dispatcher.include_router(build_root_router())
     return dispatcher

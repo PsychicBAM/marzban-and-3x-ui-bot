@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -193,12 +193,6 @@ async def handle_edit_enter_value(
         _build_edit_success_text(plan_service, plan, field, old_value, new_value),
         reply_markup=edit_fields_keyboard(plan.id),
     )
-
-
-@router.message(Command("cancel"), StateFilter(TariffEditStates))
-async def edit_cancel_command(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer("❌ Редактирование отменено.")
 
 
 async def _log_field_update(
