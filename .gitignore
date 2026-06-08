@@ -1,0 +1,79 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+secrets/
+private/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs
+logs/
+*.log
+debug.log
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Backups
+backups/
+backup/
+*.bak
+*.dump
+*.sql
+*.tar
+*.tar.gz
+*.zip
+
+# Generated QR / temp
+qr/
+tmp/
+temp/
+generated/
+media/qr/
+
+# Docker local data
+docker-data/
+postgres-data/
+pgdata/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Cursor local/private
+.cursor/cache/
+.cursor/index/
+.cursor/private/
+.cursor/memories/
+
+# Keep Cursor project rules if needed
+!.cursor/rules/
+!.cursor/rules/*.mdc

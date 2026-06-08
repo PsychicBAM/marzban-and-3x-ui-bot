@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+from aiogram import BaseMiddleware
+from aiogram.types import TelegramObject
+
+from app.application.services.admin_log_service import AdminLogService
+from app.application.services.expiry_notification_service import ExpiryNotificationService
+from app.application.services.payment_approval_service import PaymentApprovalService
+from app.application.services.payment_request_service import PaymentRequestService
+from app.application.services.plan_service import PlanService
+from app.application.services.provisioning_notification_service import ProvisioningNotificationService
+from app.application.services.qr_code_service import QrCodeService
+from app.application.services.settings_service import SettingsService
+from app.application.services.statistics_service import StatisticsService
+from app.application.services.user_service import UserService
+from app.config.settings import Settings, get_settings
+from app.infrastructure.db.session import session_scope
+from app.infrastructure.db.uow import UnitOfWork
+from app.infrastructure.integrations.factory import (
+    create_admin_customer_service,
+    create_customer_vpn_service,
+    create_manual_key_flow_service,
+    create_manual_provisioning_service,
+    create_vpn_provisioning_service,
+)
+
+
+class DatabaseMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        settings: Settings = data.get("settings") or get_settings()
+        async with session_scope() as session:
+            uow = UnitOfWork(session)
+            data["uow"] = uow
+            settings_service = SettingsService(uow, settings)
+            data["settings_service"] = settings_service
+            data["user_service"] = UserService(uow, settings)
+            data["plan_service"] = PlanService(uow, settings)
+            data["payment_request_service"] = PaymentRequestService(uow, settings, settings_service)
+            admin_log_service = AdminLogService(uow)
+            data["admin_log_service"] = admin_log_service
+            provisioning_service = create_vpn_provisioning_service(uow, settings)
+            data["vpn_provisioning_service"] = provisioning_service
+            customer_vpn_service = create_customer_vpn_service(uow, settings)
+            data["customer_vpn_service"] = customer_vpn_service
+            data["payment_approval_service"] = PaymentApprovalService(
+                uow,
+                provisioning_service,
+                admin_log_service,
+            )
+            qr_code_service = QrCodeService()
+            data["qr_code_service"] = qr_code_service
+            provisioning_notification_service = ProvisioningNotificationService(qr_code_service)
+            data["provisioning_notification_service"] = provisioning_notification_service
+            data["admin_customer_service"] = create_admin_customer_service(
+                uow,
+                settings,
+                customer_vpn_service=customer_vpn_service,
+                admin_log_service=admin_log_service,
+                provisioning_notification_service=provisioning_notification_service,
+            )
+            data["expiry_notification_service"] = ExpiryNotificationService(
+                uow=uow,
+                settings=settings,
+                settings_service=settings_service,
+                admin_log_service=admin_log_service,
+            )
+            data["statistics_service"] = StatisticsService(uow, settings)
+            data["manual_provisioning_service"] = create_manual_provisioning_service(
+                uow,
+                settings,
+                admin_log_service,
+            )
+            data["manual_key_flow_service"] = create_manual_key_flow_service(uow, data["plan_service"])
+            return await handler(event, data)
