@@ -16,6 +16,7 @@ from app.infrastructure.integrations.marzban.mappers import (
     map_status_info,
     map_traffic_info,
     map_user_info,
+    normalize_marzban_subscription_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -136,7 +137,21 @@ class MarzbanService(MarzbanPort):
 
     async def get_subscription_link(self, username: str) -> str | None:
         info = await self.get_user(username)
-        return info.subscription_url if info else None
+        if info is None:
+            return None
+        return self.normalize_subscription_url(info.subscription_url, username=info.username)
+
+    def normalize_subscription_url(
+        self,
+        url: str | None,
+        *,
+        username: str | None = None,
+    ) -> str | None:
+        return normalize_marzban_subscription_url(
+            url,
+            subscription_base_url=self._subscription_base,
+            username=username,
+        )
 
     async def reset_user_ips(self, username: str) -> bool:
         account_name = normalize_vpn_account_name(username)

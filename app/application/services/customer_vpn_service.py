@@ -9,6 +9,7 @@ from app.config.settings import Settings
 from app.domain.enums import VpnAccountStatus
 from app.infrastructure.db.models.vpn_account import VpnAccount
 from app.infrastructure.db.uow import UnitOfWork
+from app.infrastructure.integrations.marzban.mappers import normalize_marzban_subscription_url
 from app.infrastructure.integrations.marzban.service import MarzbanService
 from app.infrastructure.integrations.xui.service import XuiService
 
@@ -101,8 +102,16 @@ class CustomerVpnService:
         links: dict[str, str] = {}
 
         if account.marzban_username:
-            url = account.marzban_subscription_url
-            if self._marzban is not None:
+            url = (account.marzban_subscription_url or "").strip() or None
+            subscription_base = (self._settings.marzban_subscription_base_url or "").strip()
+
+            if subscription_base and url:
+                url = normalize_marzban_subscription_url(
+                    url,
+                    subscription_base_url=subscription_base,
+                    username=account.marzban_username,
+                )
+            elif self._marzban is not None:
                 try:
                     fresh = await self._marzban.get_subscription_link(account.marzban_username)
                     if fresh:

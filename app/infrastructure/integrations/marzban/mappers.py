@@ -1,10 +1,53 @@
 from __future__ import annotations
 
+import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
 from app.application.dto.vpn import VpnAccountResult, VpnStatusInfo, VpnTrafficInfo
 from app.application.ports.marzban_port import MarzbanUserInfo
+
+logger = logging.getLogger(__name__)
+
+_SUB_TOKEN_RE = re.compile(r"/sub/([^?#]+)", re.IGNORECASE)
+
+
+def _extract_sub_token(url: str) -> str | None:
+    match = _SUB_TOKEN_RE.search(url)
+    if not match:
+        return None
+    token = match.group(1).strip("/")
+    return token or None
+
+
+def normalize_marzban_subscription_url(
+    url: str | None,
+    *,
+    subscription_base_url: str | None,
+    username: str | None = None,
+) -> str | None:
+    """Rebuild subscription URL using MARZBAN_SUBSCRIPTION_BASE_URL and /sub/{token}."""
+    base = (subscription_base_url or "").strip().rstrip("/")
+    if not base:
+        return url.strip() if url and url.strip() else None
+
+    raw = url.strip() if url and url.strip() else None
+    token = _extract_sub_token(raw) if raw else None
+    if not token:
+        return raw
+
+    if base.endswith("/sub"):
+        normalized = f"{base}/{token}"
+    else:
+        normalized = f"{base}/sub/{token}"
+
+    if raw != normalized:
+        logger.info(
+            "Marzban subscription URL normalized",
+            extra={"username": username or ""},
+        )
+    return normalized
 
 
 def gb_to_bytes(gb: int) -> int:
@@ -38,20 +81,27 @@ def extract_subscription_url(
     *,
     subscription_base_url: str | None,
 ) -> str | None:
+    raw: str | None = None
     direct = payload.get("subscription_url")
     if isinstance(direct, str) and direct.strip():
-        return direct.strip()
+        raw = direct.strip()
+    else:
+        links = payload.get("links") or []
+        if links and isinstance(links[0], str) and links[0].strip():
+            raw = links[0].strip()
 
-    links = payload.get("links") or []
-    if links and isinstance(links[0], str):
-        return links[0]
+    username = str(payload.get("username") or "") or None
+    base = (subscription_base_url or "").strip()
+    if base:
+        normalized = normalize_marzban_subscription_url(
+            raw,
+            subscription_base_url=base,
+            username=username,
+        )
+        if normalized:
+            return normalized
 
-    if subscription_base_url:
-        username = payload.get("username")
-        if username:
-            return f"{subscription_base_url.rstrip('/')}/{username}"
-
-    return None
+    return raw
 
 
 def map_user_info(
