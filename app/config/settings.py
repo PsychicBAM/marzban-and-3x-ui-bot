@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     marzban_inbound_vmess: str = Field("vmess-tcp-notls", alias="MARZBAN_INBOUND_VMESS")
     marzban_api_token: str = Field("", alias="MARZBAN_API_TOKEN")
     marzban_subscription_base_url: str = Field("", alias="MARZBAN_SUBSCRIPTION_BASE_URL")
+    marzban_vless_flow: str = Field("", alias="MARZBAN_VLESS_FLOW")
 
     # 3x-ui
     xui_enabled: bool = Field(False, alias="XUI_ENABLED")
@@ -50,6 +51,7 @@ class Settings(BaseSettings):
     xui_inbound_id: int = Field(1, alias="XUI_INBOUND_ID")
     xui_verify_ssl: bool = Field(True, alias="XUI_VERIFY_SSL")
     xui_subscription_base_url: str = Field("", alias="XUI_SUBSCRIPTION_BASE_URL")
+    xui_vless_flow: str = Field("", alias="XUI_VLESS_FLOW")
 
     # Defaults (overridable via DB settings later)
     payment_details: str = Field("", alias="PAYMENT_DETAILS")

@@ -232,7 +232,22 @@ XUI_PASSWORD=strong_password
 XUI_INBOUND_ID=1
 ```
 
-Optional: `MARZBAN_API_TOKEN`, `XUI_API_TOKEN`, subscription base URLs, `*_VERIFY_SSL=false` for self-signed certs.
+When the panel serves subscriptions on a different host or path than the admin API, set:
+
+```env
+XUI_SUBSCRIPTION_BASE_URL=https://your-server:2096/vpn
+```
+
+The bot builds `{XUI_SUBSCRIPTION_BASE_URL}/{subId}` (no extra `/sub`). If unset, it uses `{XUI_BASE_URL}/sub/{subId}`.
+
+For VLESS REALITY inbounds, set flow on both panels:
+
+```env
+MARZBAN_VLESS_FLOW=xtls-rprx-vision
+XUI_VLESS_FLOW=xtls-rprx-vision
+```
+
+Optional: `MARZBAN_API_TOKEN`, `XUI_API_TOKEN`, `MARZBAN_SUBSCRIPTION_BASE_URL`, `*_VERIFY_SSL=false` for self-signed certs.
 
 ---
 

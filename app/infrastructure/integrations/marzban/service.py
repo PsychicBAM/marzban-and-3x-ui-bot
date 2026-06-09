@@ -82,14 +82,18 @@ class MarzbanService(MarzbanPort):
                 panel="marzban",
             )
 
+        vless_flow = (self._settings.marzban_vless_flow or "").strip() or None
         payload = self._client.build_user_payload(
             username=account_name,
             expire_unix=datetime_to_unix(data.expire_at),
             data_limit_bytes=gb_to_bytes(data.traffic_limit_gb),
             status="active",
             ip_limit=data.ip_limit,
+            vless_flow=vless_flow,
         )
         created = await self._client.create_user_raw(payload)
+        if vless_flow:
+            logger.info("VLESS flow applied: %s", vless_flow)
         logger.info("Marzban user created", extra={"username": account_name})
         return map_account_result(
             created,
@@ -108,15 +112,19 @@ class MarzbanService(MarzbanPort):
         enable: bool,
     ) -> MarzbanUserInfo:
         account_name = normalize_vpn_account_name(username)
+        vless_flow = (self._settings.marzban_vless_flow or "").strip() or None
         payload = self._client.build_user_payload(
             username=account_name,
             expire_unix=datetime_to_unix(expire_at),
             data_limit_bytes=gb_to_bytes(data_limit_gb),
             status="active" if enable else "disabled",
             ip_limit=ip_limit,
+            vless_flow=vless_flow,
         )
         payload.pop("username", None)
         updated = await self._client.modify_user_raw(account_name, payload)
+        if vless_flow:
+            logger.info("VLESS flow applied: %s", vless_flow)
         logger.info("Marzban user updated", extra={"username": account_name, "enable": enable})
         return map_user_info(updated, subscription_base_url=self._subscription_base)
 

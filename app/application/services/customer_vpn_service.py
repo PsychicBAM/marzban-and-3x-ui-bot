@@ -11,6 +11,7 @@ from app.infrastructure.db.models.vpn_account import VpnAccount
 from app.infrastructure.db.uow import UnitOfWork
 from app.infrastructure.integrations.marzban.mappers import normalize_marzban_subscription_url
 from app.infrastructure.integrations.marzban.service import MarzbanService
+from app.infrastructure.integrations.xui.mappers import normalize_xui_subscription_url
 from app.infrastructure.integrations.xui.service import XuiService
 
 logger = logging.getLogger(__name__)
@@ -125,8 +126,17 @@ class CustomerVpnService:
                 links["Marzban"] = url
 
         if account.xui_email:
-            url = account.xui_subscription_url
-            if self._xui is not None:
+            url = (account.xui_subscription_url or "").strip() or None
+            subscription_base = (self._settings.xui_subscription_base_url or "").strip()
+
+            if subscription_base and url:
+                url = normalize_xui_subscription_url(
+                    url,
+                    subscription_base_url=subscription_base,
+                    panel_base_url=self._settings.xui_base_url,
+                    email=account.xui_email,
+                )
+            elif self._xui is not None:
                 try:
                     fresh = await self._xui.get_subscription_link(account.xui_email)
                     if fresh:

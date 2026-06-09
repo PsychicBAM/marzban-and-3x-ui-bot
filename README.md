@@ -67,6 +67,13 @@ cp .env.example .env
 | `DATABASE_URL` | `postgresql+asyncpg://user:pass@host:5432/db` |
 | `MARZBAN_*` / `XUI_*` | Параметры VPN-панелей |
 
+Для VLESS REALITY укажите flow (если нужен):
+
+| Переменная | Описание |
+|---|---|
+| `MARZBAN_VLESS_FLOW` | Например `xtls-rprx-vision` — только для VLESS в Marzban |
+| `XUI_VLESS_FLOW` | То же для VLESS inbound в 3x-ui |
+
 Полный список — в [`.env.example`](.env.example).
 
 ## Локальный запуск

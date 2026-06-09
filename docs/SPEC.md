@@ -190,15 +190,17 @@ Duplicate protection: one pending `purchase` request per user. Double-click appr
 
 - Auth: `MARZBAN_API_TOKEN` or username/password via `/api/admin/token`
 - User protocols: VLESS, Trojan, VMESS (inbound tags from `.env`)
+- VLESS flow: optional `MARZBAN_VLESS_FLOW` (e.g. `xtls-rprx-vision` for REALITY); applied to VLESS proxy only
 - Operations: create, update, enable, disable, delete, get, subscription link, traffic/status
 - Subscription URL: API `subscription_url` or `MARZBAN_SUBSCRIPTION_BASE_URL/{username}`
 
 ### 3x-ui
 
 - Auth: `XUI_API_TOKEN` (Bearer) or session login (`XUI_USERNAME` / `XUI_PASSWORD`)
-- Client fields: email, UUID, expiryTime (ms), totalGB (bytes), limitIp, enable, subId
+- Client fields: email, UUID, expiryTime (ms), totalGB (bytes), limitIp, enable, subId, flow (VLESS only)
+- VLESS flow: optional `XUI_VLESS_FLOW` when inbound protocol is `vless`; omitted for trojan, vmess, hysteria
 - Operations: list/get inbound, add/update/delete client, traffic, online clients, clear IPs
-- Subscription URL: `XUI_SUBSCRIPTION_BASE_URL/{subId}` or `{XUI_BASE_URL}/sub/{subId}`
+- Subscription URL: `XUI_SUBSCRIPTION_BASE_URL/{subId}` (no `/sub` suffix on base) or `{XUI_BASE_URL}/sub/{subId}` when base is unset. Old panel URLs are normalized by extracting the token after `/sub/` or `/vpn/`.
 
 ### Shared DTOs
 

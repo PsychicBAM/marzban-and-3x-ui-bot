@@ -39,6 +39,10 @@ async def main() -> None:
         print("Marzban is disabled. Set MARZBAN_ENABLED=true in .env")
         raise SystemExit(1)
 
+    vless_flow = (settings.marzban_vless_flow or "").strip()
+    if vless_flow:
+        print(f"VLESS flow configured: {vless_flow}")
+
     expire_at = datetime.now(UTC) + timedelta(days=args.days)
     try:
         result = await service.create_account(
@@ -51,6 +55,10 @@ async def main() -> None:
         )
         print("Created:", result.account_name)
         print("Subscription:", result.subscription_url or "<none>")
+        if vless_flow and result.raw:
+            proxies = result.raw.get("proxies") or {}
+            vless_proxy = proxies.get("vless") or {}
+            print("VLESS proxy flow:", vless_proxy.get("flow") or "<not set>")
         status = await service.get_status(result.account_name)
         if status:
             print("Status:", status.status, "expire:", status.expire_at)

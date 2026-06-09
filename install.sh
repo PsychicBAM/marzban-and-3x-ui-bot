@@ -320,6 +320,8 @@ configure_env_interactive() {
     set_env_key "MARZBAN_INBOUND_TROJAN" "${REPLY}"
     read_optional "MARZBAN_INBOUND_VMESS" "vmess-tcp-notls"
     set_env_key "MARZBAN_INBOUND_VMESS" "${REPLY}"
+    read_optional "MARZBAN_VLESS_FLOW (VLESS REALITY, e.g. xtls-rprx-vision)" "xtls-rprx-vision"
+    set_env_key "MARZBAN_VLESS_FLOW" "${REPLY}"
     set_env_key "MARZBAN_VERIFY_SSL" "true"
   else
     set_env_key "MARZBAN_BASE_URL" ""
@@ -357,6 +359,8 @@ configure_env_interactive() {
 
     read_optional "XUI_INBOUND_ID" "1"
     set_env_key "XUI_INBOUND_ID" "${REPLY}"
+    read_optional "XUI_VLESS_FLOW (VLESS REALITY, e.g. xtls-rprx-vision)" "xtls-rprx-vision"
+    set_env_key "XUI_VLESS_FLOW" "${REPLY}"
     set_env_key "XUI_VERIFY_SSL" "true"
   else
     set_env_key "XUI_BASE_URL" ""

@@ -110,11 +110,17 @@ class MarzbanApiClient:
         data_limit_bytes: int,
         status: str = "active",
         ip_limit: int = 0,
+        vless_flow: str | None = None,
     ) -> dict[str, Any]:
+        vless_proxy: dict[str, Any] = {}
+        flow = (vless_flow or "").strip()
+        if flow:
+            vless_proxy["flow"] = flow
+
         payload: dict[str, Any] = {
             "username": username,
             "proxies": {
-                "vless": {},
+                "vless": vless_proxy,
                 "trojan": {},
                 "vmess": {},
             },

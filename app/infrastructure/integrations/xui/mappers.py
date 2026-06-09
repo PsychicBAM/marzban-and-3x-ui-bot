@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
 from app.application.dto.vpn import VpnAccountResult, VpnInboundInfo, VpnStatusInfo, VpnTrafficInfo
 from app.application.ports.xui_port import XuiClientInfo
+
+logger = logging.getLogger(__name__)
+
+_SUB_TOKEN_RE = re.compile(r"/sub/([^?#]+)", re.IGNORECASE)
+_VPN_TOKEN_RE = re.compile(r"/vpn/([^?#]+)", re.IGNORECASE)
 
 
 def ms_to_datetime(value: int | None) -> datetime | None:
@@ -62,9 +69,11 @@ def build_client_payload(
     total_gb: int,
     limit_ip: int,
     enable: bool,
+    flow: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "id": client_uuid,
+        "alterId": 0,
         "email": email,
         "limitIp": limit_ip,
         "totalGB": gb_to_panel_bytes(total_gb),
@@ -72,9 +81,12 @@ def build_client_payload(
         "enable": enable,
         "tgId": "",
         "subId": sub_id,
-        "flow": "",
         "reset": 0,
     }
+    vless_flow = (flow or "").strip()
+    if vless_flow:
+        payload["flow"] = vless_flow
+    return payload
 
 
 def map_client_info(
@@ -95,17 +107,78 @@ def map_client_info(
     )
 
 
+def _join_url_path(base: str, *segments: str) -> str:
+    parts = [base.rstrip("/")]
+    for segment in segments:
+        cleaned = segment.strip("/")
+        if cleaned:
+            parts.append(cleaned)
+    return "/".join(parts)
+
+
+def extract_xui_subscription_token(
+    url: str | None,
+    *,
+    sub_id: str | None = None,
+) -> str | None:
+    if sub_id and str(sub_id).strip():
+        return str(sub_id).strip()
+    if not url or not str(url).strip():
+        return None
+    raw = str(url).strip()
+    for pattern in (_VPN_TOKEN_RE, _SUB_TOKEN_RE):
+        match = pattern.search(raw)
+        if match:
+            token = match.group(1).strip("/")
+            if token:
+                return token
+    return None
+
+
+def normalize_xui_subscription_url(
+    url: str | None,
+    *,
+    subscription_base_url: str | None,
+    panel_base_url: str | None = None,
+    sub_id: str | None = None,
+    email: str | None = None,
+) -> str | None:
+    """Rebuild 3x-ui subscription URL using XUI_SUBSCRIPTION_BASE_URL/{token}."""
+    token = extract_xui_subscription_token(url, sub_id=sub_id)
+    if not token:
+        return str(url).strip() if url and str(url).strip() else None
+
+    subscription_base = (subscription_base_url or "").strip().rstrip("/")
+    if subscription_base:
+        normalized = _join_url_path(subscription_base, token)
+    elif panel_base_url:
+        normalized = _join_url_path(panel_base_url.rstrip("/"), "sub", token)
+    else:
+        return str(url).strip() if url and str(url).strip() else None
+
+    original = str(url).strip() if url and str(url).strip() else None
+    if original and original != normalized:
+        logger.info(
+            "3x-ui subscription URL normalized",
+            extra={"email": email or ""},
+        )
+    return normalized
+
+
 def build_subscription_url(
     *,
     sub_id: str | None,
     subscription_base_url: str | None,
     panel_base_url: str,
+    email: str | None = None,
 ) -> str | None:
-    if not sub_id:
-        return None
-    if subscription_base_url:
-        return f"{subscription_base_url.rstrip('/')}/{sub_id}"
-    return f"{panel_base_url.rstrip('/')}/sub/{sub_id}"
+    return normalize_xui_subscription_url(
+        None,
+        subscription_base_url=subscription_base_url,
+        panel_base_url=panel_base_url,
+        sub_id=sub_id,
+        email=email,
+    )
 
 
 def map_account_result(
