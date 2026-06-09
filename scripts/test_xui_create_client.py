@@ -25,6 +25,7 @@ from app.application.exceptions import VpnPanelError
 from app.config.settings import get_settings
 from app.infrastructure.integrations.factory import create_xui_service
 from app.infrastructure.integrations.xui.client import ADD_CLIENT_PATH, XuiApiClient
+from app.infrastructure.integrations.xui.mappers import find_client_in_inbound
 
 
 async def _probe_add_client_endpoint(client: XuiApiClient) -> str:
@@ -35,6 +36,12 @@ async def _probe_add_client_endpoint(client: XuiApiClient) -> str:
         json_body={"id": client.inbound_id, "settings": "{}"},
     )
     return str(response.status_code)
+
+
+async def _verify_client_absent(service, email: str) -> None:
+    inbound = await service._client.get_inbound_raw(service._client.inbound_id)  # noqa: SLF001
+    if inbound is not None and find_client_in_inbound(inbound, email) is not None:
+        raise SystemExit(f"FAIL: client '{email}' still exists in inbound after delete")
 
 
 async def _print_create_result(
@@ -141,9 +148,15 @@ async def main() -> None:
         if traffic:
             print("Traffic used bytes:", traffic.used_traffic_bytes, "online:", traffic.online)
         if args.delete:
-            await service.delete_client(result.account_name)
+            await service.delete_client(
+                result.account_name,
+                client_uuid=result.external_id,
+                sub_id=str(result.raw.get("subId") or "") if result.raw else None,
+            )
             delete_method = client.last_client_delete_method or "unknown"
             print("Deleted test client. Delete method:", delete_method)
+            await _verify_client_absent(service, result.account_name)
+            print("Delete verification: client absent from inbound")
     except VpnPanelError as exc:
         print(f"Error: {exc.message}")
         raise SystemExit(2) from exc

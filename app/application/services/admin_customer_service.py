@@ -357,8 +357,9 @@ class AdminCustomerService:
             action=AdminActionType.CLIENT_DELETED,
             details={"user_id": user_id, "vpn_account_id": account.id},
         )
+        panels_ok = all(item.success for item in results) if results else True
         return AdminCustomerActionOutcome(
-            success=True,
+            success=panels_ok,
             admin_message=self._format_panel_outcome("Удаление", results),
             panel_results=results,
             customer_message="🗑 Ваш VPN был удалён администратором.",
@@ -611,7 +612,10 @@ class AdminCustomerService:
             results.append(PanelActionResult("Marzban", False, "панель не настроена"))
         if account.xui_email and self._xui:
             try:
-                await self._xui.delete_client(account.xui_email)
+                await self._xui.delete_client(
+                    account.xui_email,
+                    client_uuid=account.xui_client_uuid,
+                )
                 results.append(PanelActionResult("3x-ui", True, "удалён"))
             except Exception as exc:
                 results.append(PanelActionResult("3x-ui", False, str(exc)[:200]))
