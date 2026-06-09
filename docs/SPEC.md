@@ -53,10 +53,11 @@ Client fields: `expiryTime`, `totalGB`, `limitIp`, enable/disable, update, delet
 2. Show payment details from settings
 3. Click «✅ Я оплатил»
 4. Send receipt screenshot
-5. Admin sees request in «📥 Заявки»
-6. Admin approves/rejects
-7. On approve → create VPN accounts in selected panels
-8. Send subscription link + QR code
+5. All admins from `ADMIN_TELEGRAM_IDS` receive a push notification with «👁 Открыть заявку»
+6. Admin sees request in «📥 Заявки»
+7. Admin approves/rejects
+8. On approve → create VPN accounts in selected panels
+9. Send subscription link + QR code
 
 ### Renewal
 
@@ -169,8 +170,9 @@ Disabled tariffs remain in the admin list and keep linked accounts intact. Hard 
 1. Customer selects tariff → sees payment details from DB `settings` or `.env` `PAYMENT_DETAILS`
 2. Customer clicks «✅ Я оплатил» → sends photo/document/text receipt
 3. `payment_requests` row created with `status=pending`, `receipt_file_id`, `receipt_file_type`
-4. Admin opens «📥 Заявки» → approves or rejects
-5. **Stage 4 does not create VPN accounts** — approval only updates status and notifies customer
+4. Bot notifies every `ADMIN_TELEGRAM_IDS` admin (purchase and renewal) with inline «👁 Открыть заявку» (`preq:open:{id}`); action logged as `payment_request_admin_notified`
+5. Admin opens «📥 Заявки» (or notification button) → approves or rejects
+6. **Stage 4 does not create VPN accounts** — approval only updates status and notifies customer
 
 Duplicate protection: one pending `purchase` request per user. Double-click approve/reject is idempotent.
 

@@ -27,6 +27,19 @@ def pending_requests_keyboard(requests: list[PaymentRequestInfo]) -> InlineKeybo
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def new_payment_request_keyboard(request_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👁 Открыть заявку",
+                    callback_data=f"{CB_OPEN_PREFIX}{request_id}",
+                ),
+            ],
+        ],
+    )
+
+
 def request_details_keyboard(request_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

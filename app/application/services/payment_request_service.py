@@ -27,6 +27,12 @@ REQUEST_TYPE_LABELS: dict[str, str] = {
     PaymentRequestType.RENEWAL.value: "продление",
 }
 
+RECEIPT_TYPE_LABELS: dict[str, str] = {
+    ReceiptFileType.PHOTO.value: "фото",
+    ReceiptFileType.DOCUMENT.value: "документ",
+    ReceiptFileType.TEXT.value: "текст",
+}
+
 STATUS_LABELS: dict[str, str] = {
     PaymentRequestStatus.PENDING.value: "⏳ На проверке",
     PaymentRequestStatus.APPROVED.value: "✅ Подтверждена",
@@ -336,6 +342,34 @@ class PaymentRequestService:
 
     def format_receipt_caption(self, item: PaymentRequestInfo) -> str:
         return f"🧾 Чек по заявке #{item.id} · {item.user_full_name} · {item.plan_name}"
+
+    def format_admin_new_request_notification(self, item: PaymentRequestInfo) -> str:
+        if item.request_type == PaymentRequestType.RENEWAL.value:
+            header = "📥 Новая заявка на продление"
+        else:
+            header = "📥 Новая заявка на оплату"
+        client = self._format_admin_client_handle(item)
+        receipt = RECEIPT_TYPE_LABELS.get(item.receipt_file_type or "", "—")
+        return "\n".join(
+            [
+                header,
+                f"👤 Клиент: {client}",
+                f"🆔 User ID: <code>{item.telegram_id}</code>",
+                f"💰 Тариф: {item.plan_name}",
+                f"💵 Сумма: {item.amount:.0f} ₽",
+                f"🧾 Чек: {receipt}",
+                f"🕒 Время: {self._format_datetime(item.created_at)}",
+            ],
+        )
+
+    @staticmethod
+    def _format_admin_client_handle(item: PaymentRequestInfo) -> str:
+        if item.username:
+            return f"@{item.username}"
+        name = (item.user_full_name or "").strip()
+        if not name or name == "Пользователь":
+            return "Пользователь"
+        return name.split()[0]
 
     @staticmethod
     def _format_traffic(gb: int) -> str:

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.application.exceptions import PaymentRequestDuplicateError, PaymentRequestNotFoundError
+from app.application.services.admin_log_service import AdminLogService
 from app.application.services.payment_request_service import PaymentRequestService
 from app.application.services.plan_service import PlanService
+from app.config.settings import Settings
+from app.presentation.services.payment_request_admin_notification import notify_admins_new_payment_request
 from app.domain.enums import ReceiptFileType
 from app.presentation.keyboards.customer import customer_main_keyboard
 from app.presentation.keyboards.purchase import (
@@ -130,7 +133,10 @@ async def handle_purchase_paid(
 async def handle_receipt_photo(
     message: Message,
     state: FSMContext,
+    bot: Bot,
     payment_request_service: PaymentRequestService,
+    settings: Settings,
+    admin_log_service: AdminLogService,
 ) -> None:
     if message.from_user is None or not message.photo:
         return
@@ -138,7 +144,10 @@ async def handle_receipt_photo(
     await _submit_receipt(
         message,
         state,
+        bot,
         payment_request_service,
+        settings,
+        admin_log_service,
         receipt_file_id=file_id,
         receipt_file_type=ReceiptFileType.PHOTO.value,
         user_comment=None,
@@ -150,14 +159,20 @@ async def handle_receipt_photo(
 async def handle_receipt_document(
     message: Message,
     state: FSMContext,
+    bot: Bot,
     payment_request_service: PaymentRequestService,
+    settings: Settings,
+    admin_log_service: AdminLogService,
 ) -> None:
     if message.from_user is None or message.document is None:
         return
     await _submit_receipt(
         message,
         state,
+        bot,
         payment_request_service,
+        settings,
+        admin_log_service,
         receipt_file_id=message.document.file_id,
         receipt_file_type=ReceiptFileType.DOCUMENT.value,
         user_comment=message.caption,
@@ -169,7 +184,10 @@ async def handle_receipt_document(
 async def handle_receipt_text(
     message: Message,
     state: FSMContext,
+    bot: Bot,
     payment_request_service: PaymentRequestService,
+    settings: Settings,
+    admin_log_service: AdminLogService,
 ) -> None:
     if message.from_user is None:
         return
@@ -181,7 +199,10 @@ async def handle_receipt_text(
     await _submit_receipt(
         message,
         state,
+        bot,
         payment_request_service,
+        settings,
+        admin_log_service,
         receipt_file_id=None,
         receipt_file_type=ReceiptFileType.TEXT.value,
         user_comment=text,
@@ -197,7 +218,10 @@ async def handle_receipt_invalid(message: Message) -> None:
 async def _submit_receipt(
     message: Message,
     state: FSMContext,
+    bot: Bot,
     payment_request_service: PaymentRequestService,
+    settings: Settings,
+    admin_log_service: AdminLogService,
     *,
     receipt_file_id: str | None,
     receipt_file_type: str,
@@ -215,7 +239,7 @@ async def _submit_receipt(
         return
 
     try:
-        await payment_request_service.create_purchase_request(
+        request = await payment_request_service.create_purchase_request(
             telegram_id=message.from_user.id,
             plan_id=plan_id,
             receipt_file_id=receipt_file_id,
@@ -234,3 +258,10 @@ async def _submit_receipt(
 
     await state.clear()
     await message.answer(SUCCESS_TEXT, reply_markup=customer_main_keyboard())
+    await notify_admins_new_payment_request(
+        bot,
+        settings=settings,
+        payment_request_service=payment_request_service,
+        admin_log_service=admin_log_service,
+        request=request,
+    )
