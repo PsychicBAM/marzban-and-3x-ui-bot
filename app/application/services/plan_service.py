@@ -98,7 +98,7 @@ class PlanService:
             issuing_mode=data.issuing_mode,
             description=data.description,
         )
-        logger.info("Plan created", extra={"plan_id": plan.id, "name": plan.name})
+        logger.info("Plan created", extra={"plan_id": plan.id, "plan_name": plan.name})
         return self._to_info(plan)
 
     async def update_plan_field(
