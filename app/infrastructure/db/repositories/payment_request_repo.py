@@ -70,6 +70,49 @@ class PaymentRequestRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def has_free_plan_activation(self, user_id: int) -> bool:
+        stmt = (
+            select(PaymentRequest.id)
+            .where(
+                PaymentRequest.user_id == user_id,
+                PaymentRequest.request_type == PaymentRequestType.PURCHASE.value,
+                PaymentRequest.amount == 0,
+                PaymentRequest.status.notin_(
+                    (
+                        PaymentRequestStatus.PENDING.value,
+                        PaymentRequestStatus.REJECTED.value,
+                    ),
+                ),
+            )
+            .limit(1)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+    async def create_approved_free_purchase(
+        self,
+        *,
+        user_id: int,
+        plan_id: int,
+    ) -> PaymentRequest:
+        now = datetime.now(UTC)
+        request = PaymentRequest(
+            user_id=user_id,
+            plan_id=plan_id,
+            request_type=PaymentRequestType.PURCHASE.value,
+            amount=Decimal("0"),
+            receipt_file_id=None,
+            receipt_file_type=None,
+            user_comment=None,
+            status=PaymentRequestStatus.APPROVED.value,
+            approved_at=now,
+            processed_at=now,
+        )
+        self._session.add(request)
+        await self._session.flush()
+        await self._session.refresh(request)
+        return request
+
     async def get_pending_purchase_by_user_id(self, user_id: int) -> PaymentRequest | None:
         stmt = (
             select(PaymentRequest)

@@ -245,11 +245,28 @@ class PlanService:
     def format_status(is_active: bool) -> str:
         return "✅ Активен" if is_active else "🚫 Отключён"
 
+    @staticmethod
+    def format_price(price: Decimal) -> str:
+        return "Бесплатно" if price == 0 else f"{price:.0f} ₽"
+
+    @staticmethod
+    def is_free(plan: PlanInfo) -> bool:
+        return plan.price == 0
+
+    def format_free_plan_checkout(self, *, plan_details: str) -> str:
+        return "\n".join(
+            [
+                plan_details,
+                "",
+                "🎁 Этот тариф бесплатный. Нажмите кнопку ниже для мгновенной активации.",
+            ],
+        )
+
     def format_plan_details(self, plan: PlanInfo) -> str:
         traffic = self.format_traffic_gb(plan.traffic_limit_gb)
         devices = self.format_ip_limit(plan.ip_limit)
         issuing = ISSUING_MODE_LABELS.get(plan.issuing_mode, plan.issuing_mode)
-        price = f"{plan.price:.0f} ₽"
+        price = self.format_price(plan.price)
 
         lines = [
             f"<b>{plan.name}</b>",

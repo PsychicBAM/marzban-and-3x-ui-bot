@@ -31,7 +31,7 @@ class ProvisioningResult:
     panel_results: list[PanelProvisionResult] = field(default_factory=list)
     subscription_links: dict[str, str] = field(default_factory=dict)
 
-    def customer_message(self) -> str:
+    def customer_message(self, *, free: bool = False) -> str:
         panels = ", ".join(
             result.panel for result in self.panel_results if result.success
         ) or "—"
@@ -39,7 +39,9 @@ class ProvisioningResult:
         devices = "Безлимит" if self.ip_limit <= 0 else str(self.ip_limit)
         expiry = self.expiry_at.strftime("%d.%m.%Y %H:%M")
 
-        if self.action == ProvisionAction.CREATE_NEW:
+        if free:
+            header = "🎁 Бесплатный доступ активирован. Ваш VPN создан."
+        elif self.action == ProvisionAction.CREATE_NEW:
             header = "✅ Оплата подтверждена. Ваш VPN создан."
         else:
             header = "✅ Оплата подтверждена. Ваш VPN продлён."

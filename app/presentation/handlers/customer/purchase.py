@@ -5,18 +5,27 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from app.application.exceptions import PaymentRequestDuplicateError, PaymentRequestNotFoundError
+from app.application.exceptions import (
+    FreePlanNotEligibleError,
+    PaymentRequestDuplicateError,
+    PaymentRequestNotFoundError,
+)
 from app.application.services.admin_log_service import AdminLogService
+from app.application.services.free_plan_activation_service import FreePlanActivationService
 from app.application.services.payment_request_service import PaymentRequestService
 from app.application.services.plan_service import PlanService
+from app.application.services.provisioning_notification_service import ProvisioningNotificationService
 from app.config.settings import Settings
+from app.presentation.services.customer_provisioning_delivery import deliver_provisioning_to_customer
 from app.presentation.services.payment_request_admin_notification import notify_admins_new_payment_request
 from app.domain.enums import ReceiptFileType
 from app.presentation.keyboards.customer import customer_main_keyboard
 from app.presentation.keyboards.purchase import (
     PURCHASE_CANCEL,
+    PURCHASE_FREE_PREFIX,
     PURCHASE_PAID_PREFIX,
     purchase_checkout_keyboard,
+    purchase_free_keyboard,
 )
 from app.presentation.keyboards.tariffs import PURCHASE_CALLBACK_PREFIX, plan_selection_keyboard
 from app.presentation.states.purchase import PurchaseReceiptStates
@@ -74,17 +83,21 @@ async def handle_plan_selected(
         await callback.answer("Тариф недоступен.", show_alert=True)
         return
 
-    payment_details = await payment_request_service.get_payment_details_text()
-    has_details = await payment_request_service.has_payment_details()
-    text = payment_request_service.format_purchase_checkout(
-        plan_details=plan_service.format_plan_details(plan),
-        payment_details=payment_details,
-        has_payment_details=has_details,
-    )
-    await callback.message.edit_text(
-        text,
-        reply_markup=purchase_checkout_keyboard(plan.id),
-    )
+    if plan_service.is_free(plan):
+        text = plan_service.format_free_plan_checkout(
+            plan_details=plan_service.format_plan_details(plan),
+        )
+        keyboard = purchase_free_keyboard(plan.id)
+    else:
+        payment_details = await payment_request_service.get_payment_details_text()
+        has_details = await payment_request_service.has_payment_details()
+        text = payment_request_service.format_purchase_checkout(
+            plan_details=plan_service.format_plan_details(plan),
+            payment_details=payment_details,
+            has_payment_details=has_details,
+        )
+        keyboard = purchase_checkout_keyboard(plan.id)
+    await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
 
@@ -99,10 +112,78 @@ async def handle_purchase_cancel(callback: CallbackQuery, state: FSMContext) -> 
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith(PURCHASE_FREE_PREFIX))
+async def handle_free_plan_activate(
+    callback: CallbackQuery,
+    state: FSMContext,
+    bot: Bot,
+    plan_service: PlanService,
+    free_plan_activation_service: FreePlanActivationService,
+    provisioning_notification_service: ProvisioningNotificationService,
+    admin_log_service: AdminLogService,
+    settings: Settings,
+) -> None:
+    await state.clear()
+    if callback.data is None or callback.from_user is None or callback.message is None:
+        await callback.answer()
+        return
+
+    plan_id_str = callback.data.removeprefix(PURCHASE_FREE_PREFIX)
+    try:
+        plan_id = int(plan_id_str)
+    except ValueError:
+        await callback.answer("Некорректный тариф.", show_alert=True)
+        return
+
+    plan = await plan_service.get_active_plan(plan_id)
+    if plan is None or not plan_service.is_free(plan):
+        await callback.answer("Тариф недоступен.", show_alert=True)
+        return
+
+    try:
+        outcome = await free_plan_activation_service.activate(
+            callback.from_user.id,
+            plan_id,
+        )
+    except FreePlanNotEligibleError as exc:
+        await callback.answer(exc.message, show_alert=True)
+        return
+    except PaymentRequestNotFoundError as exc:
+        await callback.answer(exc.message, show_alert=True)
+        return
+
+    log_admin_id = (
+        settings.admin_telegram_ids[0]
+        if settings.admin_telegram_ids
+        else callback.from_user.id
+    )
+    if outcome.notify_customer and outcome.provisioning is not None:
+        await deliver_provisioning_to_customer(
+            bot,
+            telegram_id=outcome.telegram_id,
+            customer_message=outcome.customer_message,
+            provisioning=outcome.provisioning,
+            notification_service=provisioning_notification_service,
+            admin_log_service=admin_log_service,
+            admin_telegram_id=log_admin_id,
+            payment_request_id=outcome.request_id,
+        )
+        await callback.message.answer("Выберите действие в меню.", reply_markup=customer_main_keyboard())
+        await callback.answer("Готово.")
+        return
+
+    await callback.message.answer(
+        outcome.customer_message,
+        reply_markup=customer_main_keyboard(),
+    )
+    await callback.answer(outcome.customer_message, show_alert=True)
+
+
 @router.callback_query(F.data.startswith(PURCHASE_PAID_PREFIX))
 async def handle_purchase_paid(
     callback: CallbackQuery,
     state: FSMContext,
+    plan_service: PlanService,
     payment_request_service: PaymentRequestService,
 ) -> None:
     if callback.data is None or callback.from_user is None or callback.message is None:
@@ -114,6 +195,17 @@ async def handle_purchase_paid(
         plan_id = int(plan_id_str)
     except ValueError:
         await callback.answer("Некорректный тариф.", show_alert=True)
+        return
+
+    plan = await plan_service.get_active_plan(plan_id)
+    if plan is None:
+        await callback.answer("Тариф недоступен.", show_alert=True)
+        return
+    if plan_service.is_free(plan):
+        await callback.answer(
+            "Для бесплатного тарифа нажмите «🎁 Активировать бесплатно».",
+            show_alert=True,
+        )
         return
 
     if await payment_request_service.has_pending_purchase(callback.from_user.id):

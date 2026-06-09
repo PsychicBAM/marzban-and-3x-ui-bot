@@ -8,6 +8,7 @@ from aiogram.types import TelegramObject
 
 from app.application.services.admin_log_service import AdminLogService
 from app.application.services.expiry_notification_service import ExpiryNotificationService
+from app.application.services.free_plan_activation_service import FreePlanActivationService
 from app.application.services.payment_approval_service import PaymentApprovalService
 from app.application.services.payment_request_service import PaymentRequestService
 from app.application.services.plan_service import PlanService
@@ -48,6 +49,12 @@ class DatabaseMiddleware(BaseMiddleware):
             data["admin_log_service"] = admin_log_service
             provisioning_service = create_vpn_provisioning_service(uow, settings)
             data["vpn_provisioning_service"] = provisioning_service
+            data["free_plan_activation_service"] = FreePlanActivationService(
+                uow,
+                settings,
+                provisioning_service,
+                admin_log_service,
+            )
             customer_vpn_service = create_customer_vpn_service(uow, settings)
             data["customer_vpn_service"] = customer_vpn_service
             data["payment_approval_service"] = PaymentApprovalService(

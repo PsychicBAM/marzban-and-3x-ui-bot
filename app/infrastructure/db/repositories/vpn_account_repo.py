@@ -37,6 +37,21 @@ class VpnAccountRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def has_active_vpn(self, user_id: int) -> bool:
+        now = datetime.now(UTC)
+        accounts = await self.list_by_user_id(user_id, include_deleted=False)
+        for account in accounts:
+            if account.status != VpnAccountStatus.ACTIVE.value:
+                continue
+            expiry = account.expiry_date
+            if expiry is None:
+                return True
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=UTC)
+            if expiry > now:
+                return True
+        return False
+
     async def get_renewal_candidate(
         self,
         user_id: int,

@@ -58,6 +58,7 @@ class AdminActionType(StrEnum):
     PAYMENT_APPROVED = "payment_approved"
     PAYMENT_REJECTED = "payment_rejected"
     PAYMENT_REQUEST_ADMIN_NOTIFIED = "payment_request_admin_notified"
+    FREE_PLAN_ACTIVATED = "free_plan_activated"
     VPN_PROVISIONED = "vpn_provisioned"
     VPN_PROVISIONING_FAILED = "vpn_provisioning_failed"
     VPN_PROVISIONING_PARTIAL = "vpn_provisioning_partial"

@@ -243,7 +243,10 @@ class PaymentRequestService:
         plan_details: str,
         payment_details: str,
         has_payment_details: bool,
+        is_free: bool = False,
     ) -> str:
+        if is_free:
+            return plan_details
         lines = [plan_details, ""]
         if has_payment_details:
             lines.append("💳 <b>Реквизиты оплаты:</b>")

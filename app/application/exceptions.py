@@ -25,6 +25,10 @@ class PaymentRequestNotFoundError(PaymentRequestError):
     pass
 
 
+class FreePlanNotEligibleError(PaymentRequestError):
+    pass
+
+
 class StatisticsLoadError(Exception):
     def __init__(self, message: str = "Не удалось загрузить статистику.") -> None:
         self.message = message
@@ -62,6 +66,7 @@ class VpnPanelValidationError(VpnPanelError):
 
 __all__ = [
     "PaymentRequestAlreadyProcessedError",
+    "FreePlanNotEligibleError",
     "PaymentRequestDuplicateError",
     "PaymentRequestError",
     "PaymentRequestNotFoundError",

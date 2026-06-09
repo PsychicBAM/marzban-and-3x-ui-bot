@@ -49,6 +49,8 @@ Client fields: `expiryTime`, `totalGB`, `limitIp`, enable/disable, update, delet
 
 ### Purchase
 
+**Paid plan (`price > 0`):**
+
 1. Select tariff
 2. Show payment details from settings
 3. Click «✅ Я оплатил»
@@ -58,6 +60,15 @@ Client fields: `expiryTime`, `totalGB`, `limitIp`, enable/disable, update, delet
 7. Admin approves/rejects
 8. On approve → create VPN accounts in selected panels
 9. Send subscription link + QR code
+
+**Free plan (`price == 0`):**
+
+1. Select tariff → «🎁 Активировать бесплатно» (no payment details, no receipt)
+2. Eligibility: no active VPN; one free activation per Telegram user (ever)
+3. Creates `payment_requests` with `amount=0`, `status=approved` (statistics/history)
+4. Immediate provisioning via `VpnProvisioningService` (respects `issuing_mode`, duration, traffic, IP)
+5. Customer message: «🎁 Бесплатный доступ активирован. Ваш VPN создан.» + links + QR
+6. Admin log: `free_plan_activated`
 
 ### Renewal
 

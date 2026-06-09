@@ -2,6 +2,7 @@ from app.application.services.admin_customer_service import AdminCustomerService
 from app.application.services.admin_log_service import AdminLogService
 from app.application.services.customer_vpn_service import CustomerVpnService
 from app.application.services.expiry_notification_service import ExpiryNotificationService
+from app.application.services.free_plan_activation_service import FreePlanActivationService
 from app.application.services.payment_approval_service import PaymentApprovalService
 from app.application.services.payment_request_service import PaymentRequestService
 from app.application.services.provisioning_notification_service import ProvisioningNotificationService
@@ -17,6 +18,7 @@ __all__ = [
     "AdminLogService",
     "CustomerVpnService",
     "ExpiryNotificationService",
+    "FreePlanActivationService",
     "PaymentApprovalService",
     "PaymentRequestService",
     "ProvisioningNotificationService",
