@@ -14,6 +14,7 @@ from app.infrastructure.integrations.xui.client import XuiApiClient
 from app.infrastructure.integrations.xui.inbound_mutations import (
     ClientDeleteCriteria,
     find_client_matching_delete_criteria,
+    inbound_id_value,
 )
 from app.infrastructure.integrations.xui.mappers import (
     build_client_payload,
@@ -342,23 +343,33 @@ class XuiService(XuiPort):
             enable=True,
         )
 
-    def _build_delete_criteria(
+    async def _build_delete_criteria(
         self,
         *,
         email: str,
-        inbound: dict[str, Any],
         client_uuid: str | None = None,
         sub_id: str | None = None,
     ) -> ClientDeleteCriteria:
         account_name = normalize_vpn_account_name(email)
-        panel_client = find_client_in_inbound(inbound, account_name)
-        if panel_client is None:
-            lookup = ClientDeleteCriteria(
-                email=account_name,
-                client_uuid=client_uuid,
-                sub_id=sub_id,
-            )
-            panel_client = find_client_matching_delete_criteria(inbound, lookup)
+        lookup = ClientDeleteCriteria(
+            email=account_name,
+            client_uuid=client_uuid,
+            sub_id=sub_id,
+        )
+
+        panel_client: dict[str, Any] | None = None
+        for summary in await self._client.list_inbounds_raw():
+            inbound_id = inbound_id_value(summary)
+            if inbound_id is None:
+                continue
+            inbound = await self._client.get_inbound_raw(inbound_id)
+            if inbound is None:
+                continue
+            panel_client = find_client_in_inbound(inbound, account_name)
+            if panel_client is None:
+                panel_client = find_client_matching_delete_criteria(inbound, lookup)
+            if panel_client is not None:
+                break
 
         resolved_uuid = (client_uuid or "").strip()
         if not resolved_uuid and panel_client is not None:
@@ -382,19 +393,12 @@ class XuiService(XuiPort):
         sub_id: str | None = None,
     ) -> None:
         account_name = normalize_vpn_account_name(email)
-        inbound = await self._client.get_inbound_raw(self._client.inbound_id)
-        if inbound is None:
-            raise VpnPanelNotFoundError(
-                f"3x-ui inbound {self._client.inbound_id} not found",
-                panel="xui",
-            )
-        criteria = self._build_delete_criteria(
+        criteria = await self._build_delete_criteria(
             email=account_name,
-            inbound=inbound,
             client_uuid=client_uuid,
             sub_id=sub_id,
         )
-        await self._client.delete_client_raw(self._client.inbound_id, criteria)
+        await self._client.delete_client_everywhere(criteria)
         logger.info("3x-ui client deleted", extra={"email": account_name})
 
     async def get_client_traffic(self, email: str) -> int:

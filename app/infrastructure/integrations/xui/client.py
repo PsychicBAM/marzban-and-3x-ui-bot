@@ -16,6 +16,8 @@ from app.infrastructure.integrations.xui.inbound_mutations import (
     append_client_to_inbound,
     build_inbound_update_payload,
     find_client_matching_delete_criteria,
+    inbound_display_name,
+    inbound_id_value,
     inbound_update_to_form,
     remove_client_from_inbound,
     replace_client_in_inbound,
@@ -330,7 +332,15 @@ class XuiApiClient:
         )
         self._ensure_success(response, context="update client", method="POST", path=path)
 
-    async def _verify_client_deleted(
+    def _client_still_exists_error(self, inbound: dict[str, Any]) -> VpnPanelError:
+        inbound_id = inbound_id_value(inbound) or 0
+        remark = inbound_display_name(inbound)
+        return VpnPanelError(
+            f"3x-ui delete verification failed: client still exists in inbound #{inbound_id} {remark}",
+            panel="xui",
+        )
+
+    async def _verify_client_deleted_in_inbound(
         self,
         inbound_id: int,
         criteria: ClientDeleteCriteria,
@@ -345,22 +355,49 @@ class XuiApiClient:
         remaining = find_client_matching_delete_criteria(inbound, criteria)
         if remaining is not None:
             logger.warning(
-                "3x-ui delete verification failed",
-                extra={
-                    "inbound_id": inbound_id,
-                    "matched_email": bool(criteria.email),
-                    "matched_uuid": bool(criteria.client_uuid),
-                    "matched_sub_id": bool(criteria.sub_id),
-                },
+                "3x-ui delete per-inbound verification failed",
+                extra={"inbound_id": inbound_id},
             )
-            raise VpnPanelError(
-                "3x-ui delete verification failed: client still exists",
-                panel="xui",
-            )
+            raise self._client_still_exists_error(inbound)
         logger.info(
-            "3x-ui delete verification succeeded",
+            "3x-ui delete per-inbound verification succeeded",
             extra={"inbound_id": inbound_id},
         )
+
+    async def _find_inbounds_with_client(
+        self,
+        criteria: ClientDeleteCriteria,
+    ) -> list[tuple[int, dict[str, Any]]]:
+        matched: list[tuple[int, dict[str, Any]]] = []
+        for summary in await self.list_inbounds_raw():
+            inbound_id = inbound_id_value(summary)
+            if inbound_id is None:
+                continue
+            inbound = await self.get_inbound_raw(inbound_id)
+            if inbound is None:
+                continue
+            if find_client_matching_delete_criteria(inbound, criteria) is not None:
+                matched.append((inbound_id, inbound))
+        return matched
+
+    async def _verify_client_deleted_globally(
+        self,
+        criteria: ClientDeleteCriteria,
+    ) -> None:
+        for summary in await self.list_inbounds_raw():
+            inbound_id = inbound_id_value(summary)
+            if inbound_id is None:
+                continue
+            inbound = await self.get_inbound_raw(inbound_id)
+            if inbound is None:
+                continue
+            if find_client_matching_delete_criteria(inbound, criteria) is not None:
+                logger.warning(
+                    "3x-ui delete global verification failed",
+                    extra={"inbound_id": inbound_id},
+                )
+                raise self._client_still_exists_error(inbound)
+        logger.info("3x-ui delete global verification succeeded")
 
     async def _delete_client_via_inbound_update(
         self,
@@ -384,50 +421,36 @@ class XuiApiClient:
             },
         )
         await self._update_inbound_raw(inbound_id, update_payload)
-        await self._verify_client_deleted(inbound_id, criteria)
+        await self._verify_client_deleted_in_inbound(inbound_id, criteria)
 
-    async def delete_client_raw(
+    async def delete_client_everywhere(
         self,
-        inbound_id: int,
         criteria: ClientDeleteCriteria,
     ) -> None:
+        """Remove matching client from every inbound via get-modify-update."""
         self._last_client_delete_method = None
-        client_uuid = (criteria.client_uuid or "").strip()
-        path = f"/panel/api/inbounds/{inbound_id}/delClient/{client_uuid}"
-        response = await self._request("POST", path)
-        if response.status_code in {200, 204}:
-            self._last_client_delete_method = "delClient"
-            await self._verify_client_deleted(inbound_id, criteria)
+        matched = await self._find_inbounds_with_client(criteria)
+        if not matched:
+            logger.info(
+                "3x-ui delete: client not found in any inbound",
+                extra={"email": criteria.email or ""},
+            )
+            await self._verify_client_deleted_globally(criteria)
             return
 
-        if response.status_code == 404:
-            primary_error = self._format_request_error(response, method="POST", path=path)
+        self._last_client_delete_method = "inbound_update"
+        for inbound_id, _ in matched:
             logger.info(
-                "3x-ui delClient unavailable (404), using inbound update fallback",
+                "3x-ui delete: removing client from inbound",
                 extra={"inbound_id": inbound_id},
             )
-            try:
-                await self._delete_client_via_inbound_update(inbound_id, criteria)
-            except VpnPanelError:
-                raise
-            except Exception as exc:
-                fallback_reason = str(exc)[:300]
-                raise VpnPanelError(
-                    "xui delete client failed: "
-                    f"primary delClient 404 ({primary_error}); "
-                    f"fallback inbound update failed ({fallback_reason})",
-                    panel="xui",
-                ) from exc
-            self._last_client_delete_method = "inbound_update"
-            logger.info(
-                "3x-ui client deleted via inbound update fallback",
-                extra={"inbound_id": inbound_id},
-            )
-            return
+            await self._delete_client_via_inbound_update(inbound_id, criteria)
 
-        self._ensure_success(response, context="delete client", method="POST", path=path)
-        self._last_client_delete_method = "delClient"
-        await self._verify_client_deleted(inbound_id, criteria)
+        await self._verify_client_deleted_globally(criteria)
+        logger.info(
+            "3x-ui client deleted from all matched inbounds",
+            extra={"inbound_count": len(matched)},
+        )
 
     async def get_client_traffic_raw(self, email: str) -> dict[str, Any] | None:
         path = f"/panel/api/inbounds/getClientTraffics/{email}"

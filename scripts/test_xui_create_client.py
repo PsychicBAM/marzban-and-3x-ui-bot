@@ -25,7 +25,12 @@ from app.application.exceptions import VpnPanelError
 from app.config.settings import get_settings
 from app.infrastructure.integrations.factory import create_xui_service
 from app.infrastructure.integrations.xui.client import ADD_CLIENT_PATH, XuiApiClient
-from app.infrastructure.integrations.xui.mappers import find_client_in_inbound
+from app.infrastructure.integrations.xui.inbound_mutations import (
+    ClientDeleteCriteria,
+    find_client_matching_delete_criteria,
+    inbound_display_name,
+    inbound_id_value,
+)
 
 
 async def _probe_add_client_endpoint(client: XuiApiClient) -> str:
@@ -39,9 +44,20 @@ async def _probe_add_client_endpoint(client: XuiApiClient) -> str:
 
 
 async def _verify_client_absent(service, email: str) -> None:
-    inbound = await service._client.get_inbound_raw(service._client.inbound_id)  # noqa: SLF001
-    if inbound is not None and find_client_in_inbound(inbound, email) is not None:
-        raise SystemExit(f"FAIL: client '{email}' still exists in inbound after delete")
+    criteria = ClientDeleteCriteria(email=email)
+    client = service._client  # noqa: SLF001
+    for summary in await client.list_inbounds_raw():
+        inbound_id = inbound_id_value(summary)
+        if inbound_id is None:
+            continue
+        inbound = await client.get_inbound_raw(inbound_id)
+        if inbound is None:
+            continue
+        if find_client_matching_delete_criteria(inbound, criteria) is not None:
+            remark = inbound_display_name(inbound)
+            raise SystemExit(
+                f"FAIL: client '{email}' still exists in inbound #{inbound_id} {remark}",
+            )
 
 
 async def _print_create_result(

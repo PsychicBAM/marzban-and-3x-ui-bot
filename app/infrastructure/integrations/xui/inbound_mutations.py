@@ -120,6 +120,20 @@ def find_client_matching_delete_criteria(
     return None
 
 
+def inbound_display_name(inbound: dict[str, Any]) -> str:
+    return str(inbound.get("remark") or inbound.get("tag") or "").strip()
+
+
+def inbound_id_value(inbound: dict[str, Any]) -> int | None:
+    raw_id = inbound.get("id")
+    if raw_id is None:
+        return None
+    try:
+        return int(raw_id)
+    except (TypeError, ValueError):
+        return None
+
+
 def append_client_to_inbound(inbound: dict[str, Any], client: dict[str, Any]) -> dict[str, Any]:
     updated = dict(inbound)
     settings_obj = parse_settings_field(updated.get("settings"))
