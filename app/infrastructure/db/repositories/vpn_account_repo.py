@@ -27,6 +27,38 @@ class VpnAccountRepository:
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
+    async def exists_by_name(self, vpn_account_name: str) -> bool:
+        stmt = select(VpnAccount.id).where(VpnAccount.vpn_account_name == vpn_account_name).limit(1)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+    async def count_non_deleted_for_user(self, user_id: int) -> int:
+        accounts = await self.list_by_user_id(user_id, include_deleted=False)
+        return len(accounts)
+
+    async def list_active_for_user(self, user_id: int) -> list[VpnAccount]:
+        now = datetime.now(UTC)
+        accounts = await self.list_by_user_id(user_id, include_deleted=False)
+        active: list[VpnAccount] = []
+        for account in accounts:
+            if account.status != VpnAccountStatus.ACTIVE.value:
+                continue
+            expiry = account.expiry_date
+            if expiry is not None:
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=UTC)
+                if expiry <= now:
+                    continue
+            active.append(account)
+        return active
+
+    async def get_primary_for_user(self, user_id: int) -> VpnAccount | None:
+        accounts = await self.list_by_user_id(user_id, include_deleted=False)
+        for account in accounts:
+            if account.is_primary:
+                return account
+        return accounts[0] if accounts else None
+
     async def get_latest_for_user(self, user_id: int) -> VpnAccount | None:
         stmt = (
             select(VpnAccount)
@@ -79,11 +111,15 @@ class VpnAccountRepository:
         traffic_limit_gb: int,
         ip_limit: int,
         status: str = VpnAccountStatus.ACTIVE.value,
+        display_name: str | None = None,
+        is_primary: bool = False,
     ) -> VpnAccount:
         account = VpnAccount(
             user_id=user_id,
             plan_id=plan_id,
             vpn_account_name=vpn_account_name,
+            display_name=display_name,
+            is_primary=is_primary,
             expiry_date=expiry_date,
             traffic_limit_gb=traffic_limit_gb,
             ip_limit=ip_limit,

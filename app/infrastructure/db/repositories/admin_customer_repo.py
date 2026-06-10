@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,12 +10,14 @@ from app.domain.enums import VpnAccountStatus
 from app.infrastructure.db.models.user import User
 from app.infrastructure.db.models.vpn_account import VpnAccount
 
-PAGE_SIZE = 10
+PAGE_SIZE = 5
 
 STATUS_ACTIVE = "active"
 STATUS_EXPIRED = "expired"
 STATUS_DISABLED = "disabled"
 STATUS_DELETED = "deleted"
+STATUS_EXPIRING_SOON = "expiring_soon"
+EXPIRING_SOON_DAYS = 7
 
 
 class AdminCustomerRepository:
@@ -27,7 +29,13 @@ class AdminCustomerRepository:
         result = await self._session.execute(stmt)
         return int(result.scalar_one())
 
+    async def list_all_accounts(self) -> list[VpnAccount]:
+        stmt = select(VpnAccount).order_by(VpnAccount.created_at.desc())
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
     async def list_latest_non_deleted_accounts(self) -> list[VpnAccount]:
+        """One latest non-deleted account per user — used by statistics dashboard."""
         stmt = (
             select(VpnAccount)
             .where(
@@ -64,22 +72,6 @@ class AdminCustomerRepository:
         deleted_user_ids = [row[0] for row in result.all()]
         return [user_id for user_id in deleted_user_ids if user_id not in users_with_active]
 
-    async def get_latest_deleted_account_for_user(self, user_id: int) -> VpnAccount | None:
-        stmt = (
-            select(VpnAccount)
-            .where(
-                VpnAccount.user_id == user_id,
-                or_(
-                    VpnAccount.status == VpnAccountStatus.DELETED.value,
-                    VpnAccount.deleted_at.is_not(None),
-                ),
-            )
-            .order_by(VpnAccount.created_at.desc())
-            .limit(1)
-        )
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
-
     async def get_users_by_ids(self, user_ids: list[int]) -> dict[int, User]:
         if not user_ids:
             return {}
@@ -88,6 +80,7 @@ class AdminCustomerRepository:
         return {user.id: user for user in result.scalars().all()}
 
     async def search_users(self, query: str, *, limit: int = 20) -> list[User]:
+        """User search for manual key flow (one row per user)."""
         q = query.strip()
         if not q:
             return []
@@ -104,19 +97,17 @@ class AdminCustomerRepository:
         stmt: Select[tuple[User]] = (
             select(User)
             .where(or_(*conditions))
-            .options(selectinload(User.vpn_accounts))
             .order_by(User.created_at.desc())
             .limit(limit)
         )
         result = await self._session.execute(stmt)
-        users = list(result.scalars().unique().all())
+        users = list(result.scalars().all())
 
         if not users:
             stmt = (
                 select(User)
                 .join(VpnAccount, VpnAccount.user_id == User.id)
                 .where(VpnAccount.vpn_account_name.ilike(f"%{q}%"))
-                .options(selectinload(User.vpn_accounts))
                 .order_by(User.created_at.desc())
                 .limit(limit)
             )
@@ -124,6 +115,64 @@ class AdminCustomerRepository:
             users = list(result.scalars().unique().all())
 
         return users
+
+    async def search_accounts(
+        self,
+        query: str,
+        *,
+        offset: int = 0,
+        limit: int = PAGE_SIZE,
+    ) -> tuple[list[tuple[User, VpnAccount]], int]:
+        q = query.strip()
+        if not q:
+            return [], 0
+
+        conditions = [
+            User.first_name.ilike(f"%{q}%"),
+            User.username.ilike(f"%{q}%"),
+            VpnAccount.vpn_account_name.ilike(f"%{q}%"),
+            VpnAccount.display_name.ilike(f"%{q}%"),
+            VpnAccount.marzban_username.ilike(f"%{q}%"),
+            VpnAccount.xui_email.ilike(f"%{q}%"),
+        ]
+        if q.isdigit():
+            conditions.append(User.telegram_id == int(q))
+
+        where_clause = or_(*conditions)
+        count_stmt = (
+            select(func.count())
+            .select_from(VpnAccount)
+            .join(User, VpnAccount.user_id == User.id)
+            .where(where_clause)
+        )
+        count_result = await self._session.execute(count_stmt)
+        total = int(count_result.scalar_one())
+
+        stmt: Select[tuple[VpnAccount]] = (
+            select(VpnAccount)
+            .join(User, VpnAccount.user_id == User.id)
+            .where(where_clause)
+            .options(selectinload(VpnAccount.user))
+            .order_by(User.created_at.desc(), VpnAccount.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        accounts = list(result.scalars().unique().all())
+        return [(account.user, account) for account in accounts], total
+
+    @staticmethod
+    def is_expiring_soon(account: VpnAccount, *, now: datetime) -> bool:
+        if AdminCustomerRepository.categorize_account(account, now=now) != STATUS_ACTIVE:
+            return False
+        expiry = account.expiry_date
+        if expiry is None:
+            return False
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=UTC)
+        if expiry <= now:
+            return False
+        return expiry <= now + timedelta(days=EXPIRING_SOON_DAYS)
 
     @staticmethod
     def categorize_account(account: VpnAccount, *, now: datetime) -> str:

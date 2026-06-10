@@ -187,6 +187,18 @@ Disabled tariffs remain in the admin list and keep linked accounts intact. Hard 
 
 Duplicate protection: one pending `purchase` request per user. Double-click approve/reject is idempotent.
 
+### Multi-subscription purchase (active VPN)
+
+If the customer already has an **active** VPN and selects a **paid** tariff:
+
+1. Bot asks: «У вас уже есть активный VPN. Что вы хотите сделать?»
+2. **🔄 Продлить текущий VPN** — `request_type=renewal`, `vpn_account_id` set; one account auto-selected, or picker if several active subscriptions
+3. **➕ Купить отдельную подписку** — customer enters a latin label (`grandma`, `phone`, …); bot generates unique `vpn_account_name` (`{base}_{label}`, suffix `_2` if needed); `payment_requests.target_vpn_account_name` + `target_display_name`; on approve → **new** `vpn_accounts` row + new panel clients (same Telegram user)
+
+Free plan remains blocked when the user already has active VPN or used free plan once.
+
+`vpn_accounts`: optional `display_name`, `is_primary` (first subscription). Global unique `vpn_account_name`.
+
 ### Payment request receipt fields
 
 | Field | Description |
@@ -276,10 +288,9 @@ Admin delete must: disable/delete on panels, `vpn_accounts.status=deleted`, `del
 
 ### «📊 Мой VPN»
 
-`CustomerVpnService` loads the user's latest non-deleted `vpn_accounts` row and shows:
-
-- status, tariff, expiry, days left, traffic (live from panel API when available), limits, panels, account name
-- inline actions: **🔗 Получить ссылку**, **📷 Получить QR-code**, **🔄 Продлить VPN**, **🏠 Главное меню**
+- **One subscription:** card with status, tariff, expiry, traffic, limits, panels, display name / account name; actions: link, QR, renew
+- **Several subscriptions:** list (name, status, expiry) → select one → same card and actions per subscription
+- Primary subscription: `vpn_accounts.is_primary` (fallback: newest non-deleted)
 
 If panel traffic refresh fails, saved DB values are shown with: `⚠️ Не удалось обновить трафик, показаны сохранённые данные.`
 
@@ -305,30 +316,51 @@ Entry points: main menu **🔄 Продлить VPN** or **🔄 Продлить
 | Deleted / no account | `now + N` (new DB row + new panel accounts on approve) |
 | Disabled, future expiry | `expires_at + N` + re-enable |
 
-Admin **📥 Заявки** shows type `новая` / `продление`. Renewal details include current and expected expiry.
+Admin **📥 Заявки** shows type `новая` / `новая подписка` / `продление`, subscription label, target VPN name, renewal account when applicable.
 
 Approval reuses `PaymentApprovalService` → `VpnProvisioningService` → customer links + QR (renewal message: «Ваш VPN продлён»).
 
 ## Admin Customer Management (Stage 7)
 
-Admin menu **👥 Клиенты** (`AdminCustomerService`):
+Admin menu **👥 Клиенты** (`AdminCustomerService`) — **one row per `vpn_accounts` subscription**, not per user.
 
-- Dashboard: user/VPN counts by status (active, expired, disabled, deleted)
-- Filtered paginated lists (10 per page) with panel badges M / XUI
-- Search by telegram_id, username, name, VPN account name (FSM)
-- Client card: profile, payment status, VPN details, live traffic with DB fallback
+### Dashboard counts
 
-### Actions (per-panel results shown to admin)
+| Metric | Meaning |
+|---|---|
+| Total users | All rows in `users` |
+| Active / expired / disabled / deleted VPN subscriptions | Count of `vpn_accounts` rows in each category |
+
+### Lists and search
+
+- Filtered paginated lists (**5 per page**): active, **expiring soon (≤7 days)**, expired, disabled, deleted — each entry is one subscription
+- Compact list text (message body):
+  - `N) 👤 {customer} · 🔑 {display_name or short vpn name}`
+  - `   до {dd.mm} · {M/XUI|M|XUI}`
+- Compact inline buttons: `N. {short_customer} · {short_label}` (no full `vpn_account_name` / status in button text)
+- Pagination row: `⬅️ Назад | Стр. X/Y | Далее ➡️`
+- Search (FSM): `first_name`, `username`, `telegram_id`, `display_name`, `vpn_account_name`, `marzban_username`, `xui_email` — same compact list + pagination; query kept in FSM while browsing results
+- Callback data uses `vpn_account_id` (`acl:o:{id}`, `acl:a:*:{id}`, etc.), never “first account for user”
+
+### Client card (per subscription)
+
+- 👤 Client name · 🆔 Telegram ID · 🔑 Subscription display name · 🧩 VPN account name
+- 📌 Status · 📅 Expiry · 📊 Traffic / IP limit · 🖥 Marzban + 3x-ui panel status
+- Live traffic refresh with DB fallback
+
+### Actions (target selected `vpn_account_id`; per-panel results shown to admin)
 
 | Action | Behavior |
 |---|---|
-| Send link / QR | Customer notification + `admin_sent_vpn_link` / `admin_sent_vpn_qr` log |
-| Disable | Panels disabled, `status=disabled`, customer notified |
+| Send link / QR | Links/QR for **this** subscription only; `admin_sent_vpn_link` / `admin_sent_vpn_qr` log |
+| Disable | Panels disabled for this account, `status=disabled`, customer notified |
 | Enable | Blocked if expiry in past; else `status=active`, customer notified |
-| Delete (soft) | Panels deleted, `status=deleted`, `deleted_at=now()`, customer links cleared |
-| Change IP limit | Panels + DB, `ip_limit_changed` log |
-| Clear IP | Marzban reset + 3x-ui clearClientIps |
-| Manual extend | `ExpiryCalculator` rules, panels + DB updated |
+| Delete (soft) | Panels deleted for this account, `status=deleted`, `deleted_at=now()`, customer links cleared |
+| Change IP limit | Panels + DB for this account, `ip_limit_changed` log |
+| Clear IP | Marzban reset + 3x-ui clearClientIps for this account |
+| Manual extend | `ExpiryCalculator` rules on this account, panels + DB updated |
+
+Users with a single subscription see the same UX (one list row, one card).
 
 ### Soft delete vs disabled
 

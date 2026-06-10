@@ -17,9 +17,11 @@ class VpnUserStats:
 class ClientListItem:
     user_id: int
     telegram_id: int
-    display_name: str
+    customer_name: str
     username: str | None
-    vpn_account_id: int | None
+    vpn_account_id: int
+    subscription_display_name: str | None
+    vpn_account_name: str
     vpn_status_label: str
     expiry_at: datetime | None
     has_marzban: bool
@@ -38,10 +40,9 @@ class ClientCardInfo:
     telegram_id: int
     full_name: str
     username: str | None
-    registered_at: datetime
-    latest_payment_status: str | None
-    vpn_account_id: int | None
-    vpn_account_name: str | None
+    vpn_account_id: int
+    subscription_display_name: str | None
+    vpn_account_name: str
     plan_name: str | None
     status_label: str
     expiry_at: datetime | None

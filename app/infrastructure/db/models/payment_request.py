@@ -21,6 +21,8 @@ class PaymentRequest(Base):
         nullable=True,
         index=True,
     )
+    target_vpn_account_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     request_type: Mapped[str] = mapped_column(
         String(16),
         nullable=False,

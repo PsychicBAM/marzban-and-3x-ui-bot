@@ -18,6 +18,11 @@ from app.infrastructure.integrations.marzban.mappers import (
     map_user_info,
     normalize_marzban_subscription_url,
 )
+from app.infrastructure.integrations.marzban.verification import (
+    require_user_payload,
+    verify_marzban_ip_limit,
+    verify_marzban_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +34,24 @@ class MarzbanService(MarzbanPort):
         self._client = client
         self._settings = settings
         self._subscription_base = settings.marzban_subscription_base_url or None
+
+    async def _load_user_raw_required(self, username: str) -> dict:
+        account_name = normalize_vpn_account_name(username)
+        payload = await self._client.get_user_raw(account_name)
+        return require_user_payload(payload, username=account_name)
+
+    async def _verify_user_on_panel(
+        self,
+        username: str,
+        *,
+        expected_active: bool | None = None,
+        expected_ip_limit: int | None = None,
+    ) -> None:
+        payload = await self._load_user_raw_required(username)
+        if expected_active is not None:
+            verify_marzban_status(payload, expected_active=expected_active)
+        if expected_ip_limit is not None:
+            verify_marzban_ip_limit(payload, expected=expected_ip_limit)
 
     async def get_user(self, username: str) -> MarzbanUserInfo | None:
         account_name = normalize_vpn_account_name(username)
@@ -110,6 +133,7 @@ class MarzbanService(MarzbanPort):
         data_limit_gb: int,
         ip_limit: int,
         enable: bool,
+        verify_ip_limit: bool = False,
     ) -> MarzbanUserInfo:
         account_name = normalize_vpn_account_name(username)
         vless_flow = (self._settings.marzban_vless_flow or "").strip() or None
@@ -122,20 +146,28 @@ class MarzbanService(MarzbanPort):
             vless_flow=vless_flow,
         )
         payload.pop("username", None)
-        updated = await self._client.modify_user_raw(account_name, payload)
+        await self._client.modify_user_raw(account_name, payload)
+        await self._verify_user_on_panel(
+            account_name,
+            expected_active=enable,
+            expected_ip_limit=ip_limit if verify_ip_limit else None,
+        )
         if vless_flow:
             logger.info("VLESS flow applied: %s", vless_flow)
         logger.info("Marzban user updated", extra={"username": account_name, "enable": enable})
-        return map_user_info(updated, subscription_base_url=self._subscription_base)
+        verified = await self._load_user_raw_required(account_name)
+        return map_user_info(verified, subscription_base_url=self._subscription_base)
 
     async def disable_user(self, username: str) -> None:
         account_name = normalize_vpn_account_name(username)
         await self._client.modify_user_raw(account_name, {"status": "disabled"})
+        await self._verify_user_on_panel(account_name, expected_active=False)
         logger.info("Marzban user disabled", extra={"username": account_name})
 
     async def enable_user(self, username: str) -> None:
         account_name = normalize_vpn_account_name(username)
         await self._client.modify_user_raw(account_name, {"status": "active"})
+        await self._verify_user_on_panel(account_name, expected_active=True)
         logger.info("Marzban user enabled", extra={"username": account_name})
 
     async def delete_user(self, username: str) -> None:

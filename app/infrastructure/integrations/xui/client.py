@@ -13,8 +13,10 @@ from app.infrastructure.integrations.common.errors import map_http_status, map_t
 from app.infrastructure.integrations.common.masking import mask_secret
 from app.infrastructure.integrations.xui.inbound_mutations import (
     ClientDeleteCriteria,
+    ClientUpdateExpectation,
     append_client_to_inbound,
     build_inbound_update_payload,
+    client_update_verification_errors,
     find_client_matching_delete_criteria,
     inbound_display_name,
     inbound_id_value,
@@ -27,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 ADD_CLIENT_PATH = "/panel/api/inbounds/addClient"
 
-ClientMutationMethod = Literal["addClient", "inbound_update", "delClient"]
+ClientMutationMethod = Literal["addClient", "inbound_update", "delClient", "updateClient"]
+ClientUpdateMethod = Literal["updateClient", "inbound_update"]
 
 
 class XuiApiClient:
@@ -43,6 +46,7 @@ class XuiApiClient:
         self._cookies: dict[str, str] | None = None
         self._last_client_add_method: ClientMutationMethod | None = None
         self._last_client_delete_method: ClientMutationMethod | None = None
+        self._last_client_update_method: ClientUpdateMethod | None = None
 
     @property
     def inbound_id(self) -> int:
@@ -55,6 +59,10 @@ class XuiApiClient:
     @property
     def last_client_delete_method(self) -> ClientMutationMethod | None:
         return self._last_client_delete_method
+
+    @property
+    def last_client_update_method(self) -> ClientUpdateMethod | None:
+        return self._last_client_update_method
 
     def _auth_headers(self) -> dict[str, str]:
         if self._api_token:
@@ -245,23 +253,121 @@ class XuiApiClient:
                 f"xui inbound {inbound_id} not found for client add fallback",
                 panel="xui",
             )
-        update_payload = append_client_to_inbound(inbound, client)
-        await self._update_inbound_raw(inbound_id, update_payload)
+        updated_inbound = append_client_to_inbound(inbound, client)
+        await self._update_inbound_raw(inbound_id, updated_inbound)
+
+    def _client_match_criteria_from_payload(self, client: dict[str, Any]) -> ClientDeleteCriteria:
+        return ClientDeleteCriteria(
+            email=str(client.get("email") or "") or None,
+            client_uuid=str(client.get("id") or "") or None,
+            sub_id=str(client.get("subId") or "") or None,
+        )
+
+    async def _verify_client_updated(
+        self,
+        inbound_id: int,
+        criteria: ClientDeleteCriteria,
+        expected: ClientUpdateExpectation,
+    ) -> None:
+        inbound = await self.get_inbound_raw(inbound_id)
+        if inbound is None:
+            logger.warning(
+                "3x-ui update verification failed",
+                extra={"inbound_id": inbound_id, "reason": "inbound missing"},
+            )
+            raise VpnPanelError("3x-ui update verification failed: inbound missing", panel="xui")
+
+        client = find_client_matching_delete_criteria(inbound, criteria)
+        if client is None:
+            logger.warning(
+                "3x-ui update verification failed",
+                extra={"inbound_id": inbound_id, "reason": "client not found"},
+            )
+            raise VpnPanelError("3x-ui update verification failed: client not found", panel="xui")
+
+        errors = client_update_verification_errors(client, expected)
+        if errors:
+            detail = errors[0]
+            logger.warning(
+                "3x-ui update verification failed",
+                extra={
+                    "inbound_id": inbound_id,
+                    "client_email": client.get("email"),
+                    "errors": "; ".join(errors),
+                },
+            )
+            raise VpnPanelError(f"3x-ui update verification failed: {detail}", panel="xui")
+
+        logger.info(
+            "3x-ui update verification succeeded",
+            extra={
+                "inbound_id": inbound_id,
+                "client_email": client.get("email"),
+            },
+        )
+
+    async def _update_client_via_inbound_fallback(
+        self,
+        inbound_id: int,
+        criteria: ClientDeleteCriteria,
+        client: dict[str, Any],
+        *,
+        expected: ClientUpdateExpectation,
+    ) -> None:
+        inbound = await self.get_inbound_raw(inbound_id)
+        if inbound is None:
+            raise VpnPanelError(
+                f"xui inbound {inbound_id} not found for client update fallback",
+                panel="xui",
+            )
+        updated_inbound, replace_result = replace_client_in_inbound(inbound, criteria, client)
+        logger.info(
+            "3x-ui inbound update fallback matched client",
+            extra={
+                "inbound_id": inbound_id,
+                "client_email": replace_result.client_email,
+                "matched_by": replace_result.matched_by,
+                "updated_fields": ",".join(replace_result.updated_fields),
+                "before_after": ",".join(
+                    f"{field}:{before}->{after}" for field, before, after in replace_result.before_after
+                ),
+            },
+        )
+        if not replace_result.updated_fields:
+            logger.warning(
+                "3x-ui inbound update fallback: no client fields changed before POST",
+                extra={"inbound_id": inbound_id, "client_email": replace_result.client_email},
+            )
+        await self._update_inbound_raw(inbound_id, updated_inbound)
+        await self._verify_client_updated(inbound_id, criteria, expected)
 
     async def update_existing_client_via_inbound(
         self,
         inbound_id: int,
         client: dict[str, Any],
     ) -> None:
-        """Replace an existing client entry by email via get-modify-update inbound."""
+        """Replace an existing client entry via get-modify-update inbound."""
+        criteria = self._client_match_criteria_from_payload(client)
         inbound = await self.get_inbound_raw(inbound_id)
         if inbound is None:
             raise VpnPanelError(
                 f"xui inbound {inbound_id} not found for existing client update",
                 panel="xui",
             )
-        update_payload = replace_client_in_inbound(inbound, client)
-        await self._update_inbound_raw(inbound_id, update_payload)
+        updated_inbound, replace_result = replace_client_in_inbound(inbound, criteria, client)
+        logger.info(
+            "3x-ui existing client inbound update",
+            extra={
+                "inbound_id": inbound_id,
+                "client_email": replace_result.client_email,
+                "matched_by": replace_result.matched_by,
+                "updated_fields": ",".join(replace_result.updated_fields),
+                "before_after": ",".join(
+                    f"{field}:{before}->{after}" for field, before, after in replace_result.before_after
+                ),
+            },
+        )
+        await self._update_inbound_raw(inbound_id, updated_inbound)
         self._last_client_add_method = "inbound_update"
 
     async def add_client_raw(self, inbound_id: int, client: dict[str, Any]) -> None:
@@ -317,9 +423,14 @@ class XuiApiClient:
     async def update_client_raw(
         self,
         inbound_id: int,
-        client_uuid: str,
+        criteria: ClientDeleteCriteria,
         client: dict[str, Any],
+        *,
+        expected: ClientUpdateExpectation,
     ) -> None:
+        """Try updateClient; on 404 fall back to get-modify-update inbound."""
+        self._last_client_update_method = None
+        client_uuid = str(client.get("id") or criteria.client_uuid or "")
         path = f"/panel/api/inbounds/updateClient/{client_uuid}"
         form_body = {
             "id": str(inbound_id),
@@ -330,7 +441,40 @@ class XuiApiClient:
             path,
             form_body=form_body,
         )
+
+        if response.status_code == 404:
+            logger.info(
+                "3x-ui updateClient unavailable 404, using inbound update fallback",
+                extra={"inbound_id": inbound_id, "email": client.get("email")},
+            )
+            try:
+                await self._update_client_via_inbound_fallback(
+                    inbound_id,
+                    criteria,
+                    client,
+                    expected=expected,
+                )
+            except VpnPanelError:
+                raise
+            except Exception as exc:
+                primary_error = self._format_request_error(
+                    response,
+                    method="POST",
+                    path=path,
+                )
+                fallback_reason = str(exc)[:300]
+                raise VpnPanelError(
+                    "xui update client failed: "
+                    f"primary updateClient 404 ({primary_error}); "
+                    f"fallback inbound update failed ({fallback_reason})",
+                    panel="xui",
+                ) from exc
+            self._last_client_update_method = "inbound_update"
+            return
+
         self._ensure_success(response, context="update client", method="POST", path=path)
+        self._last_client_update_method = "updateClient"
+        await self._verify_client_updated(inbound_id, criteria, expected)
 
     def _client_still_exists_error(self, inbound: dict[str, Any]) -> VpnPanelError:
         inbound_id = inbound_id_value(inbound) or 0
@@ -410,7 +554,7 @@ class XuiApiClient:
                 f"xui inbound {inbound_id} not found for client delete fallback",
                 panel="xui",
             )
-        update_payload, remove_result = remove_client_from_inbound(inbound, criteria)
+        updated_inbound, remove_result = remove_client_from_inbound(inbound, criteria)
         logger.info(
             "3x-ui delete fallback matched client",
             extra={
@@ -420,7 +564,7 @@ class XuiApiClient:
                 "clients_after": remove_result.clients_after,
             },
         )
-        await self._update_inbound_raw(inbound_id, update_payload)
+        await self._update_inbound_raw(inbound_id, updated_inbound)
         await self._verify_client_deleted_in_inbound(inbound_id, criteria)
 
     async def delete_client_everywhere(

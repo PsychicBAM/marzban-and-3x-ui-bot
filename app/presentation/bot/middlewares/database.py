@@ -16,6 +16,7 @@ from app.application.services.provisioning_notification_service import Provision
 from app.application.services.qr_code_service import QrCodeService
 from app.application.services.settings_service import SettingsService
 from app.application.services.statistics_service import StatisticsService
+from app.application.services.subscription_purchase_service import SubscriptionPurchaseService
 from app.application.services.user_service import UserService
 from app.config.settings import Settings, get_settings
 from app.infrastructure.db.session import session_scope
@@ -45,6 +46,7 @@ class DatabaseMiddleware(BaseMiddleware):
             data["user_service"] = UserService(uow, settings)
             data["plan_service"] = PlanService(uow, settings)
             data["payment_request_service"] = PaymentRequestService(uow, settings, settings_service)
+            data["subscription_purchase_service"] = SubscriptionPurchaseService(uow)
             admin_log_service = AdminLogService(uow)
             data["admin_log_service"] = admin_log_service
             provisioning_service = create_vpn_provisioning_service(uow, settings)

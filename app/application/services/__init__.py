@@ -5,6 +5,7 @@ from app.application.services.expiry_notification_service import ExpiryNotificat
 from app.application.services.free_plan_activation_service import FreePlanActivationService
 from app.application.services.payment_approval_service import PaymentApprovalService
 from app.application.services.payment_request_service import PaymentRequestService
+from app.application.services.subscription_purchase_service import SubscriptionPurchaseService
 from app.application.services.provisioning_notification_service import ProvisioningNotificationService
 from app.application.services.qr_code_service import QrCodeService
 from app.application.services.vpn_provisioning_service import VpnProvisioningService
@@ -21,6 +22,7 @@ __all__ = [
     "FreePlanActivationService",
     "PaymentApprovalService",
     "PaymentRequestService",
+    "SubscriptionPurchaseService",
     "ProvisioningNotificationService",
     "QrCodeService",
     "VpnProvisioningService",

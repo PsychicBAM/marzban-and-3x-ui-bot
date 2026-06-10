@@ -68,6 +68,45 @@ class RemoveClientResult:
     matched_by: tuple[str, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True, slots=True)
+class ReplaceClientResult:
+    matched_by: str
+    updated_fields: tuple[str, ...]
+    preserved_id: str | None
+    preserved_sub_id: str | None
+    client_email: str | None
+    before_after: tuple[tuple[str, Any, Any], ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class ClientUpdateExpectation:
+    enable: bool | None = None
+    limit_ip: int | None = None
+    total_gb_bytes: int | None = None
+    expiry_time_ms: int | None = None
+    flow: str | None = None
+    flow_required: bool = False
+
+
+_CLIENT_IDENTITY_FIELDS = ("id", "subId", "uuid")
+_CLIENT_PRESERVED_FIELDS = (
+    "id",
+    "email",
+    "subId",
+    "flow",
+    "tgId",
+    "reset",
+    "totalGB",
+    "expiryTime",
+    "enable",
+    "limitIp",
+    "alterId",
+)
+_CLIENT_TRACKED_UPDATE_FIELDS = ("enable", "limitIp", "totalGB", "expiryTime", "flow")
+_PANEL_BOOL_FALSE = frozenset({"false", "0", "no", "off"})
+_PANEL_BOOL_TRUE = frozenset({"true", "1", "yes", "on"})
+
+
 def _normalize_email(value: str | None) -> str | None:
     if value is None:
         return None
@@ -134,6 +173,47 @@ def inbound_id_value(inbound: dict[str, Any]) -> int | None:
         return None
 
 
+def read_panel_bool(value: Any, *, default_if_missing: bool = True) -> bool:
+    if value is None:
+        return default_if_missing
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if not normalized:
+            return default_if_missing
+        if normalized in _PANEL_BOOL_FALSE:
+            return False
+        if normalized in _PANEL_BOOL_TRUE:
+            return True
+    return bool(value)
+
+
+def write_panel_bool(value: bool) -> bool:
+    return bool(value)
+
+
+def read_panel_int(value: Any, *, default: int = 0) -> int:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            return default
+        return int(float(cleaned))
+    if isinstance(value, float):
+        return int(value)
+    return int(value)
+
+
+def write_panel_int(value: int) -> int:
+    return int(value)
+
+
 def append_client_to_inbound(inbound: dict[str, Any], client: dict[str, Any]) -> dict[str, Any]:
     updated = dict(inbound)
     settings_obj = parse_settings_field(updated.get("settings"))
@@ -148,33 +228,147 @@ def append_client_to_inbound(inbound: dict[str, Any], client: dict[str, Any]) ->
 
     clients.append(client)
     updated["settings"] = json.dumps(settings_obj, ensure_ascii=False)
-    return build_inbound_update_payload(updated)
+    return updated
 
 
-def replace_client_in_inbound(inbound: dict[str, Any], client: dict[str, Any]) -> dict[str, Any]:
+def merge_client_update(
+    existing: dict[str, Any],
+    updates: dict[str, Any],
+) -> tuple[dict[str, Any], tuple[str, ...], dict[str, tuple[Any, Any]]]:
+    merged = dict(existing)
+    updated_fields: list[str] = []
+    before_after: dict[str, tuple[Any, Any]] = {}
+
+    for key in _CLIENT_TRACKED_UPDATE_FIELDS:
+        if key not in updates:
+            continue
+        if key == "flow":
+            new_flow = (str(updates[key]) if updates[key] is not None else "").strip()
+            old_flow = str(merged.get("flow") or "")
+            if new_flow:
+                if old_flow != new_flow:
+                    before_after[key] = (old_flow or None, new_flow)
+                    merged["flow"] = new_flow
+                    updated_fields.append("flow")
+            elif "flow" in merged:
+                before_after[key] = (old_flow or None, None)
+                merged.pop("flow")
+                updated_fields.append("flow")
+            continue
+
+        if key == "enable":
+            old_value = read_panel_bool(merged.get("enable"), default_if_missing=True)
+            new_value = write_panel_bool(read_panel_bool(updates[key], default_if_missing=True))
+        else:
+            old_value = read_panel_int(merged.get(key))
+            new_value = write_panel_int(read_panel_int(updates[key]))
+
+        if old_value != new_value:
+            before_after[key] = (merged.get(key), new_value)
+            merged[key] = new_value
+            updated_fields.append(key)
+
+    for field in _CLIENT_IDENTITY_FIELDS:
+        if existing.get(field) is not None:
+            merged[field] = existing[field]
+
+    for key in _CLIENT_PRESERVED_FIELDS:
+        if key in existing and key not in merged:
+            merged[key] = existing[key]
+
+    if "email" in updates:
+        merged["email"] = updates["email"]
+
+    return merged, tuple(updated_fields), before_after
+
+
+def client_update_verification_errors(
+    client: dict[str, Any],
+    expected: ClientUpdateExpectation,
+) -> list[str]:
+    errors: list[str] = []
+    if expected.enable is not None:
+        actual_enable = read_panel_bool(client.get("enable"), default_if_missing=True)
+        if actual_enable != expected.enable:
+            errors.append(
+                f"expected enable={expected.enable} got {actual_enable} (raw={client.get('enable')!r})",
+            )
+    if expected.limit_ip is not None:
+        actual_limit = read_panel_int(client.get("limitIp"))
+        if actual_limit != expected.limit_ip:
+            errors.append(
+                f"expected limitIp={expected.limit_ip} got {actual_limit}",
+            )
+    if expected.total_gb_bytes is not None:
+        actual_total = read_panel_int(client.get("totalGB"))
+        if actual_total != expected.total_gb_bytes:
+            errors.append(
+                f"expected totalGB={expected.total_gb_bytes} got {actual_total}",
+            )
+    if expected.expiry_time_ms is not None:
+        actual_expiry = read_panel_int(client.get("expiryTime"))
+        if actual_expiry != expected.expiry_time_ms:
+            errors.append(
+                f"expected expiryTime={expected.expiry_time_ms} got {actual_expiry}",
+            )
+    if expected.flow_required or expected.flow is not None:
+        actual_flow = str(client.get("flow") or "")
+        expected_flow = str(expected.flow or "")
+        if actual_flow != expected_flow:
+            errors.append(f"expected flow={expected_flow!r} got {actual_flow!r}")
+    return errors
+
+
+def client_matches_update_expectation(
+    client: dict[str, Any],
+    expected: ClientUpdateExpectation,
+) -> bool:
+    return not client_update_verification_errors(client, expected)
+
+
+def replace_client_in_inbound(
+    inbound: dict[str, Any],
+    criteria: ClientDeleteCriteria,
+    client_updates: dict[str, Any],
+) -> tuple[dict[str, Any], ReplaceClientResult]:
     updated = dict(inbound)
     settings_obj = parse_settings_field(updated.get("settings"))
     clients = _client_list(settings_obj)
 
-    email = str(client.get("email") or "")
-    target = email.lower()
-    replaced = False
+    matched_by: str | None = None
+    merged_client: dict[str, Any] | None = None
+    updated_fields: tuple[str, ...] = ()
+    before_after: dict[str, tuple[Any, Any]] = {}
     for index, item in enumerate(clients):
         if not isinstance(item, dict):
             continue
-        if str(item.get("email", "")).lower() == target:
-            clients[index] = client
-            replaced = True
-            break
+        match_field = client_matches_delete_criteria(item, criteria)
+        if match_field is None:
+            continue
+        merged_client, updated_fields, before_after = merge_client_update(item, client_updates)
+        clients[index] = merged_client
+        matched_by = match_field
+        break
 
-    if not replaced:
+    if matched_by is None or merged_client is None:
+        label = criteria.email or criteria.client_uuid or criteria.sub_id or "unknown"
         raise VpnPanelNotFoundError(
-            f"3x-ui client '{email}' not found in inbound for update",
+            f"3x-ui client '{label}' not found in inbound for update",
             panel="xui",
         )
 
     updated["settings"] = json.dumps(settings_obj, ensure_ascii=False)
-    return build_inbound_update_payload(updated)
+    result = ReplaceClientResult(
+        matched_by=matched_by,
+        updated_fields=updated_fields,
+        preserved_id=str(merged_client.get("id") or "") or None,
+        preserved_sub_id=str(merged_client.get("subId") or "") or None,
+        client_email=str(merged_client.get("email") or "") or None,
+        before_after=tuple(
+            (field, before, after) for field, (before, after) in before_after.items()
+        ),
+    )
+    return updated, result
 
 
 def remove_client_from_inbound(
@@ -214,7 +408,7 @@ def remove_client_from_inbound(
         removed_count=removed_count,
         matched_by=tuple(matched_by),
     )
-    return build_inbound_update_payload(updated), result
+    return updated, result
 
 
 def build_inbound_update_payload(inbound: dict[str, Any]) -> dict[str, Any]:

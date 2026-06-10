@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from app.application.dto.customer_vpn import CustomerVpnOverview, PanelOverview
+from app.application.dto.customer_vpn import CustomerVpnListItem, CustomerVpnOverview, PanelOverview
 from app.application.exceptions import PaymentRequestNotFoundError
 from app.config.settings import Settings
 from app.domain.enums import VpnAccountStatus
@@ -47,8 +47,28 @@ class CustomerVpnService:
         user = await self._uow.users.get_by_telegram_id(telegram_id)
         if user is None:
             return None
+        return await self._uow.vpn_accounts.get_primary_for_user(user.id)
+
+    async def list_subscriptions(self, telegram_id: int) -> list[CustomerVpnListItem]:
+        user = await self._uow.users.get_by_telegram_id(telegram_id)
+        if user is None:
+            return []
+        now = datetime.now(UTC)
         accounts = await self._uow.vpn_accounts.list_by_user_id(user.id, include_deleted=False)
-        return accounts[0] if accounts else None
+        items: list[CustomerVpnListItem] = []
+        for account in accounts:
+            title = self._account_title(account)
+            items.append(
+                CustomerVpnListItem(
+                    account_id=account.id,
+                    title=title,
+                    vpn_account_name=account.vpn_account_name,
+                    status_label=self._status_label(account, now),
+                    expiry_at=account.expiry_date,
+                    is_primary=account.is_primary,
+                ),
+            )
+        return items
 
     async def get_account_for_user(self, telegram_id: int, account_id: int) -> VpnAccount | None:
         user = await self._uow.users.get_by_telegram_id(telegram_id)
@@ -61,8 +81,16 @@ class CustomerVpnService:
             return None
         return account
 
-    async def build_overview(self, telegram_id: int) -> CustomerVpnOverview | None:
-        account = await self.get_primary_account(telegram_id)
+    async def build_overview(
+        self,
+        telegram_id: int,
+        *,
+        account_id: int | None = None,
+    ) -> CustomerVpnOverview | None:
+        if account_id is not None:
+            account = await self.get_account_for_user(telegram_id, account_id)
+        else:
+            account = await self.get_primary_account(telegram_id)
         if account is None:
             return None
 
@@ -88,6 +116,7 @@ class CustomerVpnService:
         return CustomerVpnOverview(
             account_id=account.id,
             vpn_account_name=account.vpn_account_name,
+            display_name=account.display_name,
             status_label=status_label,
             plan_name=plan_name,
             expiry_at=account.expiry_date,
@@ -164,9 +193,11 @@ class CustomerVpnService:
         )
         panels = ", ".join(panel.name for panel in overview.panels if panel.configured) or "—"
 
+        title = overview.display_name or overview.vpn_account_name
         lines = [
             "📊 <b>Мой VPN</b>",
             "",
+            f"🏷 Подписка: <b>{title}</b>",
             f"👤 Аккаунт: <code>{overview.vpn_account_name}</code>",
             f"📌 Статус: {overview.status_label}",
             f"📦 Тариф: {overview.plan_name or '—'}",
@@ -180,6 +211,20 @@ class CustomerVpnService:
             lines.append("")
             lines.append(TRAFFIC_REFRESH_WARNING)
         return "\n".join(lines)
+
+    def format_subscription_list_message(self, items: list[CustomerVpnListItem]) -> str:
+        lines = ["📊 <b>Мои подписки</b>", "", "Выберите подписку:"]
+        for item in items:
+            expiry = item.expiry_at.strftime("%d.%m.%Y") if item.expiry_at else "—"
+            primary = " ⭐" if item.is_primary else ""
+            lines.append(f"• <b>{item.title}</b>{primary} — {item.status_label}, до {expiry}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _account_title(account: VpnAccount) -> str:
+        if account.display_name:
+            return account.display_name
+        return account.vpn_account_name
 
     def format_links_message(self, links: dict[str, str]) -> str:
         if not links:

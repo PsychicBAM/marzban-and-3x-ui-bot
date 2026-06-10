@@ -42,13 +42,14 @@ class ProvisioningResult:
         if free:
             header = "🎁 Бесплатный доступ активирован. Ваш VPN создан."
         elif self.action == ProvisionAction.CREATE_NEW:
-            header = "✅ Оплата подтверждена. Ваш VPN создан."
+            header = "✅ Оплата подтверждена. Ваша подписка создана."
         else:
             header = "✅ Оплата подтверждена. Ваш VPN продлён."
 
         lines = [
             header,
             "",
+            f"👤 Подписка: {self.vpn_account_name}",
             f"📦 Тариф: {self.plan_name}",
             f"📅 Действует до: {expiry}",
             f"📱 Устройств: {devices}",

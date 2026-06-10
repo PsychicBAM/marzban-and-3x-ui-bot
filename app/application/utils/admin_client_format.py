@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+from app.application.dto.admin_customer import ClientListItem
+
+def _truncate(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    if max_len <= 1:
+        return text[:max_len]
+    return text[: max_len - 1] + "…"
+
+
+def subscription_short_label(
+    display_name: str | None,
+    vpn_account_name: str,
+    *,
+    max_len: int = 14,
+) -> str:
+    if display_name:
+        return _truncate(display_name.strip(), max_len)
+    return _truncate(vpn_account_name, max_len)
+
+
+def customer_short_name(name: str, *, max_len: int = 10) -> str:
+    return _truncate(name.strip(), max_len)
+
+
+def panel_badge_short(has_marzban: bool, has_xui: bool) -> str:
+    if has_marzban and has_xui:
+        return "M/XUI"
+    if has_marzban:
+        return "M"
+    if has_xui:
+        return "XUI"
+    return "—"
+
+
+def format_compact_list_row(index: int, item: ClientListItem) -> str:
+    label = subscription_short_label(item.subscription_display_name, item.vpn_account_name)
+    expiry = item.expiry_at.strftime("%d.%m") if item.expiry_at else "—"
+    badge = panel_badge_short(item.has_marzban, item.has_xui)
+    return (
+        f"{index}) 👤 {item.customer_name} · 🔑 {label}\n"
+        f"   до {expiry} · {badge}"
+    )
+
+
+def format_compact_button_label(index: int, item: ClientListItem) -> str:
+    short_customer = customer_short_name(item.customer_name)
+    short_label = subscription_short_label(
+        item.subscription_display_name,
+        item.vpn_account_name,
+        max_len=12,
+    )
+    return _truncate(f"{index}. {short_customer} · {short_label}", 64)
+
+
+def total_pages(total: int, page_size: int) -> int:
+    if total <= 0:
+        return 1
+    return (total + page_size - 1) // page_size

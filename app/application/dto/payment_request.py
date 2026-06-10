@@ -31,5 +31,9 @@ class PaymentRequestInfo:
     plan_ip_limit: int
     plan_issuing_mode: str
     vpn_account_id: int | None = None
+    target_vpn_account_name: str | None = None
+    target_display_name: str | None = None
+    renewal_vpn_account_name: str | None = None
+    renewal_display_name: str | None = None
     current_expiry_at: datetime | None = None
     expected_expiry_at: datetime | None = None

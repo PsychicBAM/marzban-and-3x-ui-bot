@@ -12,7 +12,9 @@ from app.presentation.keyboards.my_vpn import (
     MYVPN_LINKS_PREFIX,
     MYVPN_QR_PREFIX,
     MYVPN_RENEW_PREFIX,
+    MYVPN_SELECT_PREFIX,
     my_vpn_keyboard,
+    my_vpn_list_keyboard,
 )
 from app.presentation.handlers.customer.renewal import start_renewal_flow
 from app.presentation.services.customer_vpn_delivery import send_qr_codes_for_links
@@ -25,13 +27,52 @@ async def handle_my_vpn(message: Message, customer_vpn_service: CustomerVpnServi
     if message.from_user is None:
         return
 
-    overview = await customer_vpn_service.build_overview(message.from_user.id)
-    if overview is None:
+    items = await customer_vpn_service.list_subscriptions(message.from_user.id)
+    if not items:
         await message.answer(NO_VPN_TEXT, reply_markup=customer_main_keyboard())
         return
 
+    if len(items) == 1:
+        overview = await customer_vpn_service.build_overview(
+            message.from_user.id,
+            account_id=items[0].account_id,
+        )
+        if overview is None:
+            await message.answer(NO_VPN_TEXT, reply_markup=customer_main_keyboard())
+            return
+        text = customer_vpn_service.format_overview_message(overview)
+        await message.answer(text, reply_markup=my_vpn_keyboard(overview.account_id))
+        return
+
+    text = customer_vpn_service.format_subscription_list_message(items)
+    await message.answer(text, reply_markup=my_vpn_list_keyboard(items))
+
+
+@router.callback_query(F.data.startswith(MYVPN_SELECT_PREFIX))
+async def handle_my_vpn_select(
+    callback: CallbackQuery,
+    customer_vpn_service: CustomerVpnService,
+) -> None:
+    if callback.from_user is None or callback.data is None or callback.message is None:
+        await callback.answer()
+        return
+
+    account_id = _parse_account_id(callback.data, MYVPN_SELECT_PREFIX)
+    if account_id is None:
+        await callback.answer("Некорректный запрос.", show_alert=True)
+        return
+
+    overview = await customer_vpn_service.build_overview(
+        callback.from_user.id,
+        account_id=account_id,
+    )
+    if overview is None:
+        await callback.answer("VPN не найден.", show_alert=True)
+        return
+
     text = customer_vpn_service.format_overview_message(overview)
-    await message.answer(text, reply_markup=my_vpn_keyboard(overview.account_id))
+    await callback.message.answer(text, reply_markup=my_vpn_keyboard(overview.account_id))
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith(MYVPN_LINKS_PREFIX))

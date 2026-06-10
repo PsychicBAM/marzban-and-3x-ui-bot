@@ -8,6 +8,7 @@ from typing import Any
 
 from app.application.dto.vpn import VpnAccountResult, VpnInboundInfo, VpnStatusInfo, VpnTrafficInfo
 from app.application.ports.xui_port import XuiClientInfo
+from app.infrastructure.integrations.xui.inbound_mutations import read_panel_bool, read_panel_int
 
 logger = logging.getLogger(__name__)
 
@@ -94,14 +95,14 @@ def map_client_info(
     *,
     subscription_url: str | None,
 ) -> XuiClientInfo:
-    total_bytes = int(client.get("totalGB") or 0)
+    total_bytes = read_panel_int(client.get("totalGB"))
     return XuiClientInfo(
         client_uuid=str(client.get("id") or ""),
         email=str(client.get("email") or ""),
-        enable=bool(client.get("enable", True)),
-        expiry_time=ms_to_datetime(int(client.get("expiryTime") or 0)),
+        enable=read_panel_bool(client.get("enable"), default_if_missing=True),
+        expiry_time=ms_to_datetime(read_panel_int(client.get("expiryTime"))),
         total_gb=panel_bytes_to_gb(total_bytes),
-        limit_ip=int(client.get("limitIp") or 0),
+        limit_ip=read_panel_int(client.get("limitIp")),
         used_traffic_bytes=0,
         subscription_url=subscription_url,
     )

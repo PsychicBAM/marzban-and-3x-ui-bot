@@ -3,12 +3,17 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.application.dto.admin_customer import ClientListItem
+from app.application.utils.admin_client_format import (
+    format_compact_button_label,
+    total_pages,
+)
 from app.infrastructure.db.repositories.admin_customer_repo import (
     PAGE_SIZE,
     STATUS_ACTIVE,
     STATUS_DELETED,
     STATUS_DISABLED,
     STATUS_EXPIRED,
+    STATUS_EXPIRING_SOON,
 )
 
 ACL_DASH = "acl:dash"
@@ -17,7 +22,9 @@ ACL_SEARCH = "acl:search"
 ACL_FILTER_PREFIX = "acl:f:"
 ACL_OPEN_PREFIX = "acl:o:"
 ACL_PAGE_PREFIX = "acl:p:"
+ACL_PAGE_INFO_PREFIX = "acl:pg:i:"
 ACL_SEARCH_RESULT_PREFIX = "acl:sr:"
+ACL_SEARCH_PAGE_PREFIX = "acl:sq:"
 
 ACL_ACT_LINK = "acl:a:lnk:"
 ACL_ACT_QR = "acl:a:qr:"
@@ -37,6 +44,12 @@ def clients_dashboard_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Активные", callback_data=f"{ACL_FILTER_PREFIX}{STATUS_ACTIVE}:0")],
+            [
+                InlineKeyboardButton(
+                    text="⏳ Истекают скоро",
+                    callback_data=f"{ACL_FILTER_PREFIX}{STATUS_EXPIRING_SOON}:0",
+                )
+            ],
             [InlineKeyboardButton(text="⛔ Истёкшие", callback_data=f"{ACL_FILTER_PREFIX}{STATUS_EXPIRED}:0")],
             [InlineKeyboardButton(text="🚫 Отключённые", callback_data=f"{ACL_FILTER_PREFIX}{STATUS_DISABLED}:0")],
             [InlineKeyboardButton(text="🗑 Удалённые", callback_data=f"{ACL_FILTER_PREFIX}{STATUS_DELETED}:0")],
@@ -53,61 +66,79 @@ def client_list_keyboard(
     page: int,
     total: int,
 ) -> InlineKeyboardMarkup:
+    start_index = page * PAGE_SIZE
     buttons: list[list[InlineKeyboardButton]] = [
         [
             InlineKeyboardButton(
-                text=_row_label(item),
-                callback_data=f"{ACL_OPEN_PREFIX}{item.user_id}",
+                text=format_compact_button_label(start_index + offset, item),
+                callback_data=f"{ACL_OPEN_PREFIX}{item.vpn_account_id}",
             )
         ]
-        for item in items
+        for offset, item in enumerate(items, start=1)
     ]
+    buttons.append(_pagination_row(status_filter, page=page, total=total, page_prefix=ACL_PAGE_PREFIX))
+    buttons.append([InlineKeyboardButton(text="🏠 К клиентам", callback_data=ACL_DASH)])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    nav: list[InlineKeyboardButton] = []
+
+def search_results_keyboard(
+    items: list[ClientListItem],
+    *,
+    page: int,
+    total: int,
+) -> InlineKeyboardMarkup:
+    start_index = page * PAGE_SIZE
+    buttons: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text=format_compact_button_label(start_index + offset, item),
+                callback_data=f"{ACL_SEARCH_RESULT_PREFIX}{item.vpn_account_id}",
+            )
+        ]
+        for offset, item in enumerate(items, start=1)
+    ]
+    buttons.append(
+        _pagination_row("search", page=page, total=total, page_prefix=ACL_SEARCH_PAGE_PREFIX),
+    )
+    buttons.append([InlineKeyboardButton(text="🏠 К клиентам", callback_data=ACL_DASH)])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _pagination_row(
+    scope: str,
+    *,
+    page: int,
+    total: int,
+    page_prefix: str,
+) -> list[InlineKeyboardButton]:
+    pages = total_pages(total, PAGE_SIZE)
+    current = page + 1
+    row: list[InlineKeyboardButton] = []
     if page > 0:
-        nav.append(
+        row.append(
             InlineKeyboardButton(
-                text="◀️ Назад",
-                callback_data=f"{ACL_PAGE_PREFIX}{status_filter}:{page - 1}",
+                text="⬅️ Назад",
+                callback_data=f"{page_prefix}{scope}:{page - 1}",
             )
         )
-    if (page + 1) * PAGE_SIZE < total:
-        nav.append(
+    row.append(
+        InlineKeyboardButton(
+            text=f"Стр. {current}/{pages}",
+            callback_data=f"{ACL_PAGE_INFO_PREFIX}{scope}:{page}",
+        )
+    )
+    if current < pages:
+        row.append(
             InlineKeyboardButton(
-                text="▶️ Далее",
-                callback_data=f"{ACL_PAGE_PREFIX}{status_filter}:{page + 1}",
+                text="Далее ➡️",
+                callback_data=f"{page_prefix}{scope}:{page + 1}",
             )
         )
-    if nav:
-        buttons.append(nav)
-
-    buttons.append([InlineKeyboardButton(text="🏠 К клиентам", callback_data=ACL_DASH)])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    return row
 
 
-def _row_label(item: ClientListItem) -> str:
-    expiry = item.expiry_at.strftime("%d.%m.%Y") if item.expiry_at else "—"
-    panels = []
-    if item.has_marzban:
-        panels.append("M")
-    if item.has_xui:
-        panels.append("X")
-    panel_text = "/".join(panels) if panels else "—"
-    name = item.display_name[:20]
-    return f"{name} · {item.vpn_status_label} · {expiry} · {panel_text}"
-
-
-def search_results_keyboard(items: list[ClientListItem]) -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(text=_row_label(item), callback_data=f"{ACL_SEARCH_RESULT_PREFIX}{item.user_id}")]
-        for item in items
-    ]
-    buttons.append([InlineKeyboardButton(text="🏠 К клиентам", callback_data=ACL_DASH)])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def client_card_keyboard(user_id: int, *, is_deleted: bool, has_vpn: bool = True) -> InlineKeyboardMarkup:
-    if is_deleted or not has_vpn:
+def client_card_keyboard(vpn_account_id: int, *, is_deleted: bool) -> InlineKeyboardMarkup:
+    if is_deleted:
         return InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="🏠 Назад", callback_data=ACL_DASH)],
@@ -116,40 +147,84 @@ def client_card_keyboard(user_id: int, *, is_deleted: bool, has_vpn: bool = True
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔗 Отправить ссылку клиенту", callback_data=f"{ACL_ACT_LINK}{user_id}")],
-            [InlineKeyboardButton(text="📷 Отправить QR клиенту", callback_data=f"{ACL_ACT_QR}{user_id}")],
-            [InlineKeyboardButton(text="🔄 Продлить вручную", callback_data=f"{ACL_ACT_EXTEND}{user_id}")],
             [
-                InlineKeyboardButton(text="🚫 Отключить", callback_data=f"{ACL_ACT_DISABLE}{user_id}"),
-                InlineKeyboardButton(text="✅ Активировать", callback_data=f"{ACL_ACT_ENABLE}{user_id}"),
+                InlineKeyboardButton(
+                    text="🔗 Отправить ссылку клиенту",
+                    callback_data=f"{ACL_ACT_LINK}{vpn_account_id}",
+                )
             ],
             [
-                InlineKeyboardButton(text="✏️ Изменить IP limit", callback_data=f"{ACL_ACT_IP}{user_id}"),
-                InlineKeyboardButton(text="🧹 Очистить IP", callback_data=f"{ACL_ACT_CLEAR}{user_id}"),
+                InlineKeyboardButton(
+                    text="📷 Отправить QR клиенту",
+                    callback_data=f"{ACL_ACT_QR}{vpn_account_id}",
+                )
             ],
-            [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"{ACL_ACT_DELETE}{user_id}")],
+            [
+                InlineKeyboardButton(
+                    text="🔄 Продлить вручную",
+                    callback_data=f"{ACL_ACT_EXTEND}{vpn_account_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🚫 Отключить",
+                    callback_data=f"{ACL_ACT_DISABLE}{vpn_account_id}",
+                ),
+                InlineKeyboardButton(
+                    text="✅ Активировать",
+                    callback_data=f"{ACL_ACT_ENABLE}{vpn_account_id}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✏️ Изменить IP limit",
+                    callback_data=f"{ACL_ACT_IP}{vpn_account_id}",
+                ),
+                InlineKeyboardButton(
+                    text="🧹 Очистить IP",
+                    callback_data=f"{ACL_ACT_CLEAR}{vpn_account_id}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🗑 Удалить",
+                    callback_data=f"{ACL_ACT_DELETE}{vpn_account_id}",
+                )
+            ],
             [InlineKeyboardButton(text="🏠 Назад", callback_data=ACL_DASH)],
         ],
     )
 
 
-def confirm_disable_keyboard(user_id: int) -> InlineKeyboardMarkup:
+def confirm_disable_keyboard(vpn_account_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="✅ Да, отключить", callback_data=f"{ACL_CONFIRM_DISABLE}{user_id}"),
-                InlineKeyboardButton(text="❌ Отмена", callback_data=f"{ACL_CANCEL_CONFIRM}{user_id}"),
+                InlineKeyboardButton(
+                    text="✅ Да, отключить",
+                    callback_data=f"{ACL_CONFIRM_DISABLE}{vpn_account_id}",
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data=f"{ACL_CANCEL_CONFIRM}{vpn_account_id}",
+                ),
             ],
         ],
     )
 
 
-def confirm_delete_keyboard(user_id: int) -> InlineKeyboardMarkup:
+def confirm_delete_keyboard(vpn_account_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"{ACL_CONFIRM_DELETE}{user_id}"),
-                InlineKeyboardButton(text="❌ Отмена", callback_data=f"{ACL_CANCEL_CONFIRM}{user_id}"),
+                InlineKeyboardButton(
+                    text="✅ Да, удалить",
+                    callback_data=f"{ACL_CONFIRM_DELETE}{vpn_account_id}",
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data=f"{ACL_CANCEL_CONFIRM}{vpn_account_id}",
+                ),
             ],
         ],
     )

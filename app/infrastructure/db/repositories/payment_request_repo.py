@@ -138,11 +138,15 @@ class PaymentRequestRepository:
         user_comment: str | None,
         receipt_message_id: int | None = None,
         vpn_account_id: int | None = None,
+        target_vpn_account_name: str | None = None,
+        target_display_name: str | None = None,
     ) -> PaymentRequest:
         request = PaymentRequest(
             user_id=user_id,
             plan_id=plan_id,
             vpn_account_id=vpn_account_id,
+            target_vpn_account_name=target_vpn_account_name,
+            target_display_name=target_display_name,
             request_type=request_type,
             amount=amount,
             receipt_file_id=receipt_file_id,

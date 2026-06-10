@@ -12,9 +12,20 @@ class PanelOverview:
 
 
 @dataclass(slots=True)
+class CustomerVpnListItem:
+    account_id: int
+    title: str
+    vpn_account_name: str
+    status_label: str
+    expiry_at: datetime | None
+    is_primary: bool
+
+
+@dataclass(slots=True)
 class CustomerVpnOverview:
     account_id: int
     vpn_account_name: str
+    display_name: str | None
     status_label: str
     plan_name: str | None
     expiry_at: datetime | None

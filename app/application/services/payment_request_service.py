@@ -27,6 +27,14 @@ REQUEST_TYPE_LABELS: dict[str, str] = {
     PaymentRequestType.RENEWAL.value: "продление",
 }
 
+
+def resolve_request_type_label(item: PaymentRequestInfo) -> str:
+    if item.request_type == PaymentRequestType.RENEWAL.value:
+        return "продление"
+    if item.target_vpn_account_name:
+        return "новая подписка"
+    return "новая"
+
 RECEIPT_TYPE_LABELS: dict[str, str] = {
     ReceiptFileType.PHOTO.value: "фото",
     ReceiptFileType.DOCUMENT.value: "документ",
@@ -89,6 +97,8 @@ class PaymentRequestService:
         receipt_file_type: str,
         user_comment: str | None,
         receipt_message_id: int | None = None,
+        target_vpn_account_name: str | None = None,
+        target_display_name: str | None = None,
     ) -> PaymentRequestInfo:
         user = await self._uow.users.get_by_telegram_id(telegram_id)
         if user is None:
@@ -104,6 +114,12 @@ class PaymentRequestService:
         if plan is None or not plan.is_active:
             raise PaymentRequestNotFoundError("Тариф недоступен.")
 
+        if target_vpn_account_name:
+            if await self._uow.vpn_accounts.exists_by_name(target_vpn_account_name):
+                raise PaymentRequestDuplicateError(
+                    "Имя подписки уже занято. Выберите другое название.",
+                )
+
         request = await self._uow.payment_requests.create(
             user_id=user.id,
             plan_id=plan.id,
@@ -113,6 +129,8 @@ class PaymentRequestService:
             receipt_file_type=receipt_file_type,
             user_comment=user_comment,
             receipt_message_id=receipt_message_id,
+            target_vpn_account_name=target_vpn_account_name,
+            target_display_name=target_display_name,
         )
         request = await self._uow.payment_requests.get_by_id_with_relations(request.id)
         if request is None:
@@ -289,7 +307,7 @@ class PaymentRequestService:
 
         lines = ["📥 <b>Заявки на проверке</b>", ""]
         for item in requests:
-            request_type = REQUEST_TYPE_LABELS.get(item.request_type, item.request_type)
+            request_type = resolve_request_type_label(item)
             username = f"@{item.username}" if item.username else "—"
             devices = self._format_devices(item.plan_ip_limit)
             created = self._format_datetime(item.created_at)
@@ -306,7 +324,7 @@ class PaymentRequestService:
     def format_request_details(self, item: PaymentRequestInfo) -> str:
         traffic = self._format_traffic(item.plan_traffic_limit_gb)
         devices = self._format_devices(item.plan_ip_limit)
-        request_type = REQUEST_TYPE_LABELS.get(item.request_type, item.request_type)
+        request_type = resolve_request_type_label(item)
         status = STATUS_LABELS.get(item.status, item.status)
         username = f"@{item.username}" if item.username else "—"
 
@@ -328,7 +346,16 @@ class PaymentRequestService:
             "",
             f"🕐 Создана: {self._format_datetime(item.created_at)}",
         ]
+        if item.target_display_name:
+            lines.append(f"🏷 Название подписки: {item.target_display_name}")
+        if item.target_vpn_account_name:
+            lines.append(f"👤 Имя VPN: <code>{item.target_vpn_account_name}</code>")
         if item.request_type == PaymentRequestType.RENEWAL.value:
+            if item.renewal_display_name or item.renewal_vpn_account_name:
+                title = item.renewal_display_name or item.renewal_vpn_account_name
+                lines.append(f"🔄 Продление: {title}")
+            if item.renewal_vpn_account_name:
+                lines.append(f"👤 Текущий VPN: <code>{item.renewal_vpn_account_name}</code>")
             if item.current_expiry_at is not None:
                 lines.append(
                     f"📅 Текущий срок VPN: {self._format_datetime(item.current_expiry_at)}"
@@ -349,6 +376,8 @@ class PaymentRequestService:
     def format_admin_new_request_notification(self, item: PaymentRequestInfo) -> str:
         if item.request_type == PaymentRequestType.RENEWAL.value:
             header = "📥 Новая заявка на продление"
+        elif item.target_vpn_account_name:
+            header = "📥 Новая заявка: отдельная подписка"
         else:
             header = "📥 Новая заявка на оплату"
         client = self._format_admin_client_handle(item)
@@ -409,6 +438,12 @@ class PaymentRequestService:
                 account=renewal_account,
             )
 
+        renewal_vpn_account_name: str | None = None
+        renewal_display_name: str | None = None
+        if renewal_account is not None:
+            renewal_vpn_account_name = renewal_account.vpn_account_name
+            renewal_display_name = renewal_account.display_name
+
         return PaymentRequestInfo(
             id=request.id,
             user_id=request.user_id,
@@ -432,6 +467,36 @@ class PaymentRequestService:
             plan_ip_limit=plan.ip_limit,
             plan_issuing_mode=plan.issuing_mode,
             vpn_account_id=request.vpn_account_id,
+            target_vpn_account_name=request.target_vpn_account_name,
+            target_display_name=request.target_display_name,
+            renewal_vpn_account_name=renewal_vpn_account_name,
+            renewal_display_name=renewal_display_name,
             current_expiry_at=current_expiry_at,
             expected_expiry_at=expected_expiry_at,
         )
+
+    def format_separate_checkout(
+        self,
+        *,
+        plan_details: str,
+        payment_details: str,
+        has_payment_details: bool,
+        display_name: str,
+        vpn_account_name: str,
+    ) -> str:
+        lines = [
+            "➕ <b>Отдельная подписка</b>",
+            "",
+            plan_details,
+            "",
+            f"🏷 Название: <b>{display_name}</b>",
+            f"👤 Имя в панели: <code>{vpn_account_name}</code>",
+            "",
+        ]
+        if has_payment_details:
+            lines.append("💳 <b>Реквизиты оплаты:</b>")
+            lines.append(payment_details)
+        else:
+            lines.append(payment_details)
+        lines.append("\nПосле оплаты нажмите «✅ Я оплатил» и отправьте чек.")
+        return "\n".join(lines)

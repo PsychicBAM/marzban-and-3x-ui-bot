@@ -6,13 +6,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.application.dto.vpn import VpnAccountResult, VpnCreateInput, VpnInboundInfo, VpnStatusInfo, VpnTrafficInfo
-from app.application.exceptions import VpnPanelConflictError, VpnPanelNotFoundError
+from app.application.exceptions import VpnPanelConflictError, VpnPanelError, VpnPanelNotFoundError
 from app.application.ports.xui_port import XuiClientInfo, XuiPort
 from app.application.utils.vpn_username import normalize_vpn_account_name
 from app.config.settings import Settings
 from app.infrastructure.integrations.xui.client import XuiApiClient
 from app.infrastructure.integrations.xui.inbound_mutations import (
     ClientDeleteCriteria,
+    ClientUpdateExpectation,
     find_client_matching_delete_criteria,
     inbound_id_value,
 )
@@ -21,6 +22,7 @@ from app.infrastructure.integrations.xui.mappers import (
     build_subscription_url,
     datetime_to_ms,
     find_client_in_inbound,
+    gb_to_panel_bytes,
     map_account_result,
     map_client_info,
     map_inbound_info,
@@ -308,15 +310,46 @@ class XuiService(XuiPort):
             flow=vless_flow,
         )
         self._log_vless_flow(vless_flow)
+        criteria = ClientDeleteCriteria(
+            email=account_name,
+            client_uuid=str(existing.get("id") or "") or None,
+            sub_id=str(existing.get("subId") or "") or None,
+        )
+        expected = ClientUpdateExpectation(
+            enable=enable,
+            limit_ip=limit_ip,
+            total_gb_bytes=gb_to_panel_bytes(total_gb),
+            expiry_time_ms=datetime_to_ms(expiry_time),
+            flow=vless_flow or None,
+            flow_required=bool(vless_flow),
+        )
         await self._client.update_client_raw(
             self._client.inbound_id,
-            str(existing.get("id") or ""),
+            criteria,
             updated,
+            expected=expected,
         )
-        logger.info("3x-ui client updated", extra={"email": account_name, "enable": enable})
+        logger.info(
+            "3x-ui client updated",
+            extra={
+                "email": account_name,
+                "enable": enable,
+                "update_method": self._client.last_client_update_method or "unknown",
+            },
+        )
         info = await self.get_client(account_name)
         if info is None:
             raise VpnPanelNotFoundError("3x-ui client updated but cannot be loaded", panel="xui")
+        if info.enable != enable:
+            raise VpnPanelError(
+                f"3x-ui update verification failed: expected enable={enable} got {info.enable}",
+                panel="xui",
+            )
+        if info.limit_ip != limit_ip:
+            raise VpnPanelError(
+                f"3x-ui update verification failed: expected limitIp={limit_ip} got {info.limit_ip}",
+                panel="xui",
+            )
         return info
 
     async def disable_client(self, email: str) -> None:

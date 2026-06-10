@@ -30,8 +30,10 @@ from app.presentation.keyboards.admin_clients import (
     ACL_DASH,
     ACL_FILTER_PREFIX,
     ACL_OPEN_PREFIX,
+    ACL_PAGE_INFO_PREFIX,
     ACL_PAGE_PREFIX,
     ACL_SEARCH,
+    ACL_SEARCH_PAGE_PREFIX,
     ACL_SEARCH_RESULT_PREFIX,
     client_card_keyboard,
     client_list_keyboard,
@@ -67,11 +69,13 @@ async def handle_clients_menu(
 @router.callback_query(F.data == ACL_DASH)
 async def handle_clients_dashboard(
     callback: CallbackQuery,
+    state: FSMContext,
     admin_customer_service: AdminCustomerService,
 ) -> None:
     if callback.message is None:
         await callback.answer()
         return
+    await state.clear()
     stats = await admin_customer_service.get_stats()
     text = admin_customer_service.format_dashboard(stats)
     await callback.message.edit_text(text, reply_markup=clients_dashboard_keyboard())
@@ -117,6 +121,38 @@ async def handle_clients_page(
     await handle_clients_filter(callback, admin_customer_service)
 
 
+@router.callback_query(F.data.startswith(ACL_PAGE_INFO_PREFIX))
+async def handle_page_indicator(callback: CallbackQuery) -> None:
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(ACL_SEARCH_PAGE_PREFIX))
+async def handle_search_page(
+    callback: CallbackQuery,
+    state: FSMContext,
+    admin_customer_service: AdminCustomerService,
+) -> None:
+    if callback.data is None or callback.message is None:
+        await callback.answer()
+        return
+    page = _parse_scoped_page(callback.data, ACL_SEARCH_PAGE_PREFIX)
+    if page is None:
+        await callback.answer("Некорректная страница.", show_alert=True)
+        return
+    data = await state.get_data()
+    query = data.get("search_query")
+    if not isinstance(query, str) or not query.strip():
+        await callback.answer("Поиск истёк. Введите запрос снова.", show_alert=True)
+        return
+    items, total = await admin_customer_service.search_clients(query, page=page)
+    text = admin_customer_service.format_search_results(query, items, page=page, total=total)
+    await callback.message.edit_text(
+        text,
+        reply_markup=search_results_keyboard(items, page=page, total=total),
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith(ACL_OPEN_PREFIX) | F.data.startswith(ACL_SEARCH_RESULT_PREFIX))
 async def handle_open_client(
     callback: CallbackQuery,
@@ -125,12 +161,12 @@ async def handle_open_client(
     if callback.data is None or callback.message is None:
         await callback.answer()
         return
-    user_id = _parse_user_id(callback.data, (ACL_OPEN_PREFIX, ACL_SEARCH_RESULT_PREFIX))
-    if user_id is None:
-        await callback.answer("Некорректный клиент.", show_alert=True)
+    vpn_account_id = _parse_vpn_account_id(callback.data, (ACL_OPEN_PREFIX, ACL_SEARCH_RESULT_PREFIX))
+    if vpn_account_id is None:
+        await callback.answer("Некорректная подписка.", show_alert=True)
         return
     try:
-        card = await admin_customer_service.get_client_card(user_id)
+        card = await admin_customer_service.get_client_card(vpn_account_id)
     except PaymentRequestNotFoundError as exc:
         await callback.answer(exc.message, show_alert=True)
         return
@@ -138,9 +174,8 @@ async def handle_open_client(
     await callback.message.edit_text(
         text,
         reply_markup=client_card_keyboard(
-            user_id,
+            vpn_account_id,
             is_deleted=card.is_deleted,
-            has_vpn=card.vpn_account_id is not None,
         ),
     )
     await callback.answer()
@@ -151,7 +186,8 @@ async def handle_search_start(callback: CallbackQuery, state: FSMContext) -> Non
     await state.set_state(AdminClientSearchStates.waiting_query)
     if callback.message is not None:
         await callback.message.answer(
-            "🔎 Введите запрос: Telegram ID, username, имя или VPN-аккаунт.\n"
+            "🔎 Введите запрос: Telegram ID, username, имя, подписка, VPN-аккаунт, "
+            "Marzban или 3x-ui email.\n"
             "<i>/cancel для отмены</i>",
         )
     await callback.answer()
@@ -169,16 +205,18 @@ async def handle_search_query(
     if not query:
         await message.answer("Введите непустой запрос.")
         return
-    results = await admin_customer_service.search_clients(query)
-    await state.clear()
-    if not results:
+    items, total = await admin_customer_service.search_clients(query, page=0)
+    if total == 0:
+        await state.clear()
         await message.answer("Ничего не найдено.", reply_markup=clients_dashboard_keyboard())
         return
+    await state.update_data(search_query=query)
+    await state.set_state(AdminClientSearchStates.viewing_results)
+    text = admin_customer_service.format_search_results(query, items, page=0, total=total)
     await message.answer(
-        f"🔎 Найдено: {len(results)}",
-        reply_markup=search_results_keyboard(results),
+        text,
+        reply_markup=search_results_keyboard(items, page=0, total=total),
     )
-
 
 
 @router.callback_query(F.data.startswith(ACL_ACT_LINK))
@@ -200,13 +238,13 @@ async def handle_send_qr(
     if callback.data is None or callback.from_user is None:
         await callback.answer()
         return
-    user_id = _parse_user_id(callback.data, (ACL_ACT_QR,))
-    if user_id is None:
-        await callback.answer("Некорректный клиент.", show_alert=True)
+    vpn_account_id = _parse_vpn_account_id(callback.data, (ACL_ACT_QR,))
+    if vpn_account_id is None:
+        await callback.answer("Некорректная подписка.", show_alert=True)
         return
     try:
         outcome = await admin_customer_service.send_qr_to_customer(
-            user_id,
+            vpn_account_id,
             admin_telegram_id=callback.from_user.id,
         )
     except PaymentRequestNotFoundError as exc:
@@ -220,7 +258,7 @@ async def handle_send_qr(
 
 @router.callback_query(F.data.startswith(ACL_ACT_DISABLE))
 async def handle_disable_prompt(callback: CallbackQuery) -> None:
-    await _prompt_confirm(callback, ACL_ACT_DISABLE, "Вы точно хотите отключить клиента?", confirm_disable_keyboard)
+    await _prompt_confirm(callback, ACL_ACT_DISABLE, "Вы точно хотите отключить подписку?", confirm_disable_keyboard)
 
 
 @router.callback_query(F.data.startswith(ACL_CONFIRM_DISABLE))
@@ -246,7 +284,7 @@ async def handle_delete_prompt(callback: CallbackQuery) -> None:
     await _prompt_confirm(
         callback,
         ACL_ACT_DELETE,
-        "Вы точно хотите удалить VPN клиента? Старый срок больше не будет использоваться при новой покупке.",
+        "Вы точно хотите удалить эту VPN-подписку? Старый срок больше не будет использоваться при новой покупке.",
         confirm_delete_keyboard,
     )
 
@@ -268,21 +306,20 @@ async def handle_confirm_cancel(
     if callback.data is None or callback.message is None:
         await callback.answer()
         return
-    user_id = _parse_user_id(callback.data, (ACL_CANCEL_CONFIRM,))
-    if user_id is None:
+    vpn_account_id = _parse_vpn_account_id(callback.data, (ACL_CANCEL_CONFIRM,))
+    if vpn_account_id is None:
         await callback.answer()
         return
     try:
-        card = await admin_customer_service.get_client_card(user_id)
+        card = await admin_customer_service.get_client_card(vpn_account_id)
     except PaymentRequestNotFoundError:
         await callback.answer()
         return
     await callback.message.edit_text(
         admin_customer_service.format_client_card(card),
         reply_markup=client_card_keyboard(
-            user_id,
+            vpn_account_id,
             is_deleted=card.is_deleted,
-            has_vpn=card.vpn_account_id is not None,
         ),
     )
     await callback.answer("Отменено.")
@@ -302,11 +339,11 @@ async def handle_extend_start(callback: CallbackQuery, state: FSMContext) -> Non
     if callback.data is None:
         await callback.answer()
         return
-    user_id = _parse_user_id(callback.data, (ACL_ACT_EXTEND,))
-    if user_id is None:
-        await callback.answer("Некорректный клиент.", show_alert=True)
+    vpn_account_id = _parse_vpn_account_id(callback.data, (ACL_ACT_EXTEND,))
+    if vpn_account_id is None:
+        await callback.answer("Некорректная подписка.", show_alert=True)
         return
-    await state.update_data(user_id=user_id)
+    await state.update_data(vpn_account_id=vpn_account_id)
     await state.set_state(AdminClientExtendStates.waiting_days)
     if callback.message is not None:
         await callback.message.answer("Введите количество дней для продления (> 0):\n<i>/cancel для отмены</i>")
@@ -328,15 +365,15 @@ async def handle_extend_days(
         await message.answer("Введите целое число дней.")
         return
     data = await state.get_data()
-    user_id = data.get("user_id")
-    if not isinstance(user_id, int):
+    vpn_account_id = data.get("vpn_account_id")
+    if not isinstance(vpn_account_id, int):
         await state.clear()
         await message.answer("Сессия истекла.")
         return
     await state.clear()
     try:
         outcome = await admin_customer_service.manual_extend(
-            user_id,
+            vpn_account_id,
             days=days,
             admin_telegram_id=message.from_user.id,
         )
@@ -352,11 +389,11 @@ async def handle_ip_limit_start(callback: CallbackQuery, state: FSMContext) -> N
     if callback.data is None:
         await callback.answer()
         return
-    user_id = _parse_user_id(callback.data, (ACL_ACT_IP,))
-    if user_id is None:
-        await callback.answer("Некорректный клиент.", show_alert=True)
+    vpn_account_id = _parse_vpn_account_id(callback.data, (ACL_ACT_IP,))
+    if vpn_account_id is None:
+        await callback.answer("Некорректная подписка.", show_alert=True)
         return
-    await state.update_data(user_id=user_id)
+    await state.update_data(vpn_account_id=vpn_account_id)
     await state.set_state(AdminClientIpLimitStates.waiting_value)
     if callback.message is not None:
         await callback.message.answer(
@@ -381,15 +418,15 @@ async def handle_ip_limit_value(
         await message.answer("Некорректное значение. Введите целое число >= 0.")
         return
     data = await state.get_data()
-    user_id = data.get("user_id")
-    if not isinstance(user_id, int):
+    vpn_account_id = data.get("vpn_account_id")
+    if not isinstance(vpn_account_id, int):
         await state.clear()
         await message.answer("Сессия истекла.")
         return
     await state.clear()
     try:
         outcome = await admin_customer_service.change_ip_limit(
-            user_id,
+            vpn_account_id,
             new_limit=new_limit,
             admin_telegram_id=message.from_user.id,
         )
@@ -409,12 +446,12 @@ async def _run_action(
     if callback.data is None or callback.from_user is None:
         await callback.answer()
         return
-    user_id = _parse_user_id(callback.data, (prefix,))
-    if user_id is None:
-        await callback.answer("Некорректный клиент.", show_alert=True)
+    vpn_account_id = _parse_vpn_account_id(callback.data, (prefix,))
+    if vpn_account_id is None:
+        await callback.answer("Некорректная подписка.", show_alert=True)
         return
     try:
-        outcome = await action(user_id, admin_telegram_id=callback.from_user.id)
+        outcome = await action(vpn_account_id, admin_telegram_id=callback.from_user.id)
     except PaymentRequestNotFoundError as exc:
         await callback.answer(exc.message, show_alert=True)
         return
@@ -458,15 +495,15 @@ async def _prompt_confirm(
     if callback.data is None or callback.message is None:
         await callback.answer()
         return
-    user_id = _parse_user_id(callback.data, (prefix,))
-    if user_id is None:
-        await callback.answer("Некорректный клиент.", show_alert=True)
+    vpn_account_id = _parse_vpn_account_id(callback.data, (prefix,))
+    if vpn_account_id is None:
+        await callback.answer("Некорректная подписка.", show_alert=True)
         return
-    await callback.message.answer(text, reply_markup=keyboard_factory(user_id))
+    await callback.message.answer(text, reply_markup=keyboard_factory(vpn_account_id))
     await callback.answer()
 
 
-def _parse_user_id(data: str, prefixes: tuple[str, ...]) -> int | None:
+def _parse_vpn_account_id(data: str, prefixes: tuple[str, ...]) -> int | None:
     for prefix in prefixes:
         if data.startswith(prefix):
             suffix = data.removeprefix(prefix)
@@ -479,10 +516,21 @@ def _parse_user_id(data: str, prefixes: tuple[str, ...]) -> int | None:
 
 def _parse_filter_page(data: str, prefix: str) -> tuple[str, int] | None:
     suffix = data.removeprefix(prefix)
-    parts = suffix.split(":", maxsplit=1)
+    parts = suffix.rsplit(":", maxsplit=1)
     if len(parts) != 2:
         return None
     try:
         return parts[0], int(parts[1])
+    except ValueError:
+        return None
+
+
+def _parse_scoped_page(data: str, prefix: str) -> int | None:
+    suffix = data.removeprefix(prefix)
+    parts = suffix.rsplit(":", maxsplit=1)
+    if len(parts) != 2:
+        return None
+    try:
+        return int(parts[1])
     except ValueError:
         return None

@@ -12,7 +12,7 @@ from app.application.exceptions import (
 from app.application.services.expiry_calculator import ExpiryCalculator
 from app.application.utils.vpn_username import normalize_from_telegram_username, normalize_vpn_account_name
 from app.config.settings import Settings
-from app.domain.enums import IssuingMode, PanelType, ProvisionAction, VpnAccountStatus
+from app.domain.enums import IssuingMode, PanelType, PaymentRequestType, ProvisionAction, VpnAccountStatus
 from app.infrastructure.db.models.payment_request import PaymentRequest
 from app.infrastructure.db.models.plan import Plan
 from app.infrastructure.db.models.user import User
@@ -47,18 +47,47 @@ class VpnProvisioningService:
         if user is None or plan is None:
             raise VpnProvisioningError("Данные заявки неполные.")
 
-        account_name = self._resolve_account_name(user)
         now = datetime.now(UTC)
-        renewal_candidate = await self._uow.vpn_accounts.get_renewal_candidate(
-            user.id,
-            vpn_account_id=request.vpn_account_id,
+        is_renewal = request.request_type == PaymentRequestType.RENEWAL.value
+        is_separate_purchase = (
+            request.request_type == PaymentRequestType.PURCHASE.value
+            and bool(request.target_vpn_account_name)
+            and request.vpn_account_id is None
         )
+
+        if is_renewal or request.vpn_account_id is not None:
+            renewal_candidate = await self._uow.vpn_accounts.get_renewal_candidate(
+                user.id,
+                vpn_account_id=request.vpn_account_id,
+            )
+            if renewal_candidate is None:
+                raise VpnProvisioningError("VPN для продления не найден.")
+            account_name = renewal_candidate.vpn_account_name
+            new_db_record = False
+        elif is_separate_purchase:
+            renewal_candidate = None
+            account_name = normalize_vpn_account_name(request.target_vpn_account_name or "")
+            if await self._uow.vpn_accounts.exists_by_name(account_name):
+                raise VpnProvisioningError(f"Имя VPN '{account_name}' уже занято.")
+            new_db_record = True
+        else:
+            renewal_candidate = await self._uow.vpn_accounts.get_renewal_candidate(user.id)
+            if renewal_candidate is not None and await self._uow.vpn_accounts.has_active_vpn(user.id):
+                raise VpnProvisioningError(
+                    "У клиента уже есть активный VPN. Нужна заявка на продление или отдельную подписку.",
+                )
+            account_name = (
+                renewal_candidate.vpn_account_name
+                if renewal_candidate is not None
+                else self._resolve_account_name(user)
+            )
+            new_db_record = ExpiryCalculator.requires_new_db_record(renewal_candidate)
+
         expiry_at, action = ExpiryCalculator.calculate(
             now=now,
             duration_days=plan.duration_days,
             account=renewal_candidate,
         )
-        new_db_record = ExpiryCalculator.requires_new_db_record(renewal_candidate)
 
         panels = self._panels_for_plan(plan)
         if not panels:
@@ -137,6 +166,7 @@ class VpnProvisioningService:
             )
 
         if new_db_record or renewal_candidate is None:
+            existing_count = await self._uow.vpn_accounts.count_non_deleted_for_user(user.id)
             vpn_account = await self._uow.vpn_accounts.create(
                 user_id=user.id,
                 plan_id=plan.id,
@@ -145,6 +175,8 @@ class VpnProvisioningService:
                 traffic_limit_gb=plan.traffic_limit_gb,
                 ip_limit=plan.ip_limit,
                 status=status,
+                display_name=request.target_display_name if is_separate_purchase else None,
+                is_primary=existing_count == 0,
             )
         else:
             vpn_account = renewal_candidate
@@ -165,7 +197,7 @@ class VpnProvisioningService:
             xui_status=xui_data.get("status"),
         )
 
-        if user.vpn_account_name != account_name:
+        if not user.vpn_account_name:
             user.vpn_account_name = account_name
 
         subscription_links = {
