@@ -24,6 +24,7 @@ from app.presentation.services.promo_checkout_helpers import get_pricing_from_st
 from app.config.settings import Settings
 from app.domain.enums import AdminActionType
 from app.presentation.services.customer_provisioning_delivery import deliver_provisioning_to_customer
+from app.presentation.services.referral_notifications import send_referral_notifications
 from app.presentation.services.payment_request_admin_notification import notify_admins_new_payment_request
 from app.domain.enums import ReceiptFileType
 from app.presentation.keyboards.customer import customer_main_keyboard
@@ -613,6 +614,8 @@ async def _start_receipt_flow(
                 provisioning=outcome.provisioning,
                 notification_service=provisioning_notification_service,
             )
+        if outcome.referral_notifications:
+            await send_referral_notifications(bot, outcome.referral_notifications)
         if callback.message is not None:
             await callback.message.answer(outcome.customer_message, reply_markup=customer_main_keyboard())
         await callback.answer("✅ VPN активирован по промокоду.")

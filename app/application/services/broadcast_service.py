@@ -102,32 +102,29 @@ class BroadcastService:
         return BroadcastService.escape_text(text)
 
     def format_preview(self, draft: BroadcastDraft) -> str:
-        safe_title = self.escape_text(draft.title)
-        safe_text = self.format_message_html(draft.text)
         audience = TARGET_LABELS.get(draft.target_type, draft.target_type)
         photo_line = "да" if draft.photo_file_id else "нет"
         return (
-            "📣 <b>Предпросмотр рассылки</b>\n\n"
-            f"<b>Название:</b> {safe_title}\n\n"
-            f"{safe_text}\n\n"
-            f"🖼 Фото: <b>{photo_line}</b>\n"
-            f"👥 Аудитория: <b>{audience}</b>\n"
-            f"📊 Получателей: <b>{draft.recipient_count}</b>"
+            "📣 Предпросмотр рассылки\n\n"
+            f"Название: {draft.title}\n\n"
+            f"{draft.text}\n\n"
+            f"🖼 Фото: {photo_line}\n"
+            f"👥 Аудитория: {audience}\n"
+            f"📊 Получателей: {draft.recipient_count}"
         )
 
     def format_history(self, items: list[Broadcast]) -> str:
         if not items:
-            return "📋 <b>История рассылок</b>\n\nПока нет рассылок."
-        lines = ["📋 <b>История рассылок</b>", ""]
+            return "📋 История рассылок\n\nПока нет рассылок."
+        lines = ["📋 История рассылок", ""]
         for item in items:
             status = STATUS_LABELS.get(item.status, item.status)
             target = TARGET_LABELS.get(item.target_type, item.target_type)
             created = item.created_at.strftime("%d.%m.%Y %H:%M")
             sent = item.sent_at.strftime("%d.%m.%Y %H:%M") if item.sent_at else "—"
-            title = self.escape_text(item.title)
+            lines.append(f"• {item.title}")
+            lines.append(f"  {status} · {target}")
             lines.append(
-                f"• <b>{title}</b>\n"
-                f"  {status} · {target}\n"
                 f"  ✉️ {item.sent_count}/{item.total_recipients} · "
                 f"создана {created} · отправлена {sent}"
             )

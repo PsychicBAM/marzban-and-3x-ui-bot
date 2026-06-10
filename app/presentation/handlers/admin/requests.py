@@ -12,6 +12,7 @@ from app.application.services.payment_approval_service import PaymentApprovalSer
 from app.application.services.payment_request_service import PaymentRequestService
 from app.application.services.provisioning_notification_service import ProvisioningNotificationService
 from app.presentation.services.customer_provisioning_delivery import deliver_provisioning_to_customer
+from app.presentation.services.referral_notifications import send_referral_notifications
 from app.domain.enums import AdminActionType, ReceiptFileType
 from app.presentation.filters.admin import IsAdminCallbackFilter, IsAdminFilter
 from app.presentation.keyboards.admin import admin_main_keyboard
@@ -176,6 +177,8 @@ async def _process_approval(
         await callback.answer("Частичная выдача VPN.", show_alert=True)
 
     await callback.message.answer(admin_text, reply_markup=admin_main_keyboard())
+    if outcome.referral_notifications:
+        await send_referral_notifications(bot, outcome.referral_notifications)
     if not outcome.failed and not outcome.partial:
         await callback.answer("Готово.")
 

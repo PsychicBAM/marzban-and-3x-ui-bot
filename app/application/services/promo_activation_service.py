@@ -5,9 +5,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.application.dto.provisioning import ProvisioningResult
+from app.application.dto.referral import ReferralNotification
 from app.application.exceptions import PaymentRequestNotFoundError, VpnProvisioningError
 from app.application.services.admin_log_service import AdminLogService
 from app.application.services.promo_code_service import PromoCodeService
+from app.application.services.referral_service import ReferralService
 from app.application.services.vpn_provisioning_service import VpnProvisioningService
 from app.config.settings import Settings
 from app.domain.enums import AdminActionType, PaymentRequestType
@@ -29,6 +31,7 @@ class PromoActivationOutcome:
     request_id: int | None
     telegram_id: int
     notify_customer: bool
+    referral_notifications: list[ReferralNotification]
 
 
 class PromoActivationService:
@@ -41,12 +44,14 @@ class PromoActivationService:
         provisioning_service: VpnProvisioningService,
         admin_log_service: AdminLogService,
         promo_code_service: PromoCodeService,
+        referral_service: ReferralService | None = None,
     ) -> None:
         self._uow = uow
         self._settings = settings
         self._provisioning = provisioning_service
         self._admin_log = admin_log_service
         self._promo = promo_code_service
+        self._referral = referral_service
 
     async def activate(
         self,
@@ -119,6 +124,7 @@ class PromoActivationService:
                 request_id=request.id,
                 telegram_id=telegram_id,
                 notify_customer=True,
+                referral_notifications=[],
             )
 
         if result.partial:
@@ -139,6 +145,7 @@ class PromoActivationService:
                 request_id=request.id,
                 telegram_id=telegram_id,
                 notify_customer=False,
+                referral_notifications=[],
             )
 
         if result.vpn_account_id is not None:
@@ -154,6 +161,11 @@ class PromoActivationService:
             },
         )
 
+        referral_notifications: list[ReferralNotification] = []
+        if self._referral is not None:
+            referral_outcome = await self._referral.process_paid_payment(request)
+            referral_notifications = referral_outcome.notifications
+
         free_msg = request_type == PaymentRequestType.PURCHASE.value
         return PromoActivationOutcome(
             success=True,
@@ -164,6 +176,7 @@ class PromoActivationService:
             request_id=request.id,
             telegram_id=telegram_id,
             notify_customer=True,
+            referral_notifications=referral_notifications,
         )
 
     def _resolve_log_admin_id(self, telegram_id: int) -> int:

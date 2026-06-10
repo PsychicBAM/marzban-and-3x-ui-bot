@@ -98,6 +98,30 @@ class AdminActionType(StrEnum):
     PROMO_CODE_ENABLED = "promo_code_enabled"
     PROMO_CODE_APPLIED = "promo_code_applied"
     PROMO_CODE_REDEEMED = "promo_code_redeemed"
+    REFERRAL_REGISTERED = "referral_registered"
+    REFERRAL_PAID = "referral_paid"
+    REFERRAL_REWARD_APPLIED = "referral_reward_applied"
+    REFERRAL_REWARD_PENDING = "referral_reward_pending"
+    REFERRAL_SETTINGS_UPDATED = "referral_settings_updated"
+
+
+class ReferralEventStatus(StrEnum):
+    REGISTERED = "registered"
+    PAID = "paid"
+    REWARDED = "rewarded"
+    REJECTED = "rejected"
+
+
+class ReferralRewardType(StrEnum):
+    PER_REFERRAL = "per_referral"
+    MILESTONE = "milestone"
+    MANUAL = "manual"
+
+
+class ReferralRewardStatus(StrEnum):
+    PENDING = "pending"
+    APPLIED = "applied"
+    CANCELED = "canceled"
 
 
 class PromoDiscountType(StrEnum):

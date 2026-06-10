@@ -11,6 +11,7 @@ from app.application.services.customer_vpn_service import CustomerVpnService
 from app.application.services.promo_activation_service import PromoActivationService
 from app.domain.enums import PaymentRequestType
 from app.presentation.services.customer_provisioning_delivery import deliver_provisioning_to_customer
+from app.presentation.services.referral_notifications import send_referral_notifications
 from app.presentation.services.promo_checkout_helpers import get_pricing_from_state, show_promo_prompt
 from app.application.services.provisioning_notification_service import ProvisioningNotificationService
 from app.application.services.payment_request_service import PaymentRequestService
@@ -163,6 +164,8 @@ async def handle_renew_paid(
                 provisioning=outcome.provisioning,
                 notification_service=provisioning_notification_service,
             )
+        if outcome.referral_notifications:
+            await send_referral_notifications(bot, outcome.referral_notifications)
         await callback.message.answer(outcome.customer_message, reply_markup=customer_main_keyboard())
         await callback.answer("✅ VPN продлён по промокоду.")
         return

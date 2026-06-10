@@ -35,6 +35,12 @@ class PromoCodeError(Exception):
         super().__init__(message)
 
 
+class ReferralError(Exception):
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
 class StatisticsLoadError(Exception):
     def __init__(self, message: str = "Не удалось загрузить статистику.") -> None:
         self.message = message

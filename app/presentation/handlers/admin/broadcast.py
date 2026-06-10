@@ -42,8 +42,9 @@ router.callback_query.filter(IsAdminCallbackFilter())
 @router.message(F.text == "📣 Рассылки")
 async def handle_broadcast_menu(message: Message) -> None:
     await message.answer(
-        "📣 <b>Рассылки</b>\n\nСоздавайте промо- и новостные сообщения для пользователей бота.",
+        "📣 Рассылки\n\nСоздавайте промо- и новостные сообщения для пользователей бота.",
         reply_markup=broadcast_home_keyboard(),
+        parse_mode=None,
     )
 
 
@@ -60,8 +61,9 @@ async def handle_broadcast_cancel(callback: CallbackQuery, state: FSMContext) ->
     await state.clear()
     if callback.message is not None:
         await callback.message.answer(
-            "📣 <b>Рассылки</b>",
+            "📣 Рассылки",
             reply_markup=broadcast_home_keyboard(),
+            parse_mode=None,
         )
     await callback.answer("Отменено.")
 
@@ -72,7 +74,8 @@ async def handle_broadcast_create_start(callback: CallbackQuery, state: FSMConte
     await state.set_state(AdminBroadcastStates.waiting_title)
     if callback.message is not None:
         await callback.message.answer(
-            "📝 Введите внутреннее название рассылки (для истории):\n<i>/cancel для отмены</i>",
+            "📝 Введите внутреннее название рассылки (для истории):\n/cancel для отмены",
+            parse_mode=None,
         )
     await callback.answer()
 
@@ -89,7 +92,8 @@ async def handle_broadcast_title(message: Message, state: FSMContext) -> None:
     await state.update_data(title=title)
     await state.set_state(AdminBroadcastStates.waiting_text)
     await message.answer(
-        "✉️ Введите текст сообщения для пользователей:\n<i>/cancel для отмены</i>",
+        "✉️ Введите текст сообщения для пользователей:\n/cancel для отмены",
+        parse_mode=None,
     )
 
 
@@ -172,7 +176,8 @@ async def handle_broadcast_edit_text(callback: CallbackQuery, state: FSMContext)
     await state.set_state(AdminBroadcastStates.waiting_text)
     if callback.message is not None:
         await callback.message.answer(
-            "✏️ Введите новый текст сообщения:\n<i>/cancel для отмены</i>",
+            "✏️ Введите новый текст сообщения:\n/cancel для отмены",
+            parse_mode=None,
         )
     await callback.answer()
 
@@ -226,10 +231,11 @@ async def handle_broadcast_confirm_send(
 
     if callback.message is not None:
         await callback.message.answer(
-            f"🚀 Рассылка «{broadcast_service.escape_text(draft.title)}» запущена.\n"
-            f"Получателей: <b>{draft.recipient_count}</b>\n"
+            f"🚀 Рассылка «{draft.title}» запущена.\n"
+            f"Получателей: {draft.recipient_count}\n"
             "Статус можно посмотреть в истории.",
             reply_markup=broadcast_home_keyboard(),
+            parse_mode=None,
         )
     await callback.answer("Рассылка запущена.")
 
@@ -246,6 +252,7 @@ async def handle_broadcast_history(
             callback.message,
             text,
             reply_markup=broadcast_home_keyboard(),
+            parse_mode=None,
         )
     await callback.answer()
 
@@ -297,9 +304,14 @@ async def _send_preview_message(
             draft.photo_file_id,
             caption=text,
             reply_markup=broadcast_preview_keyboard(),
+            parse_mode=None,
         )
     else:
-        await message.answer(text, reply_markup=broadcast_preview_keyboard())
+        await message.answer(
+            text,
+            reply_markup=broadcast_preview_keyboard(),
+            parse_mode=None,
+        )
 
 
 async def _load_draft(

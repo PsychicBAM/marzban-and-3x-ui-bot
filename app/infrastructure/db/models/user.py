@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
@@ -19,6 +19,11 @@ class User(Base):
     vpn_account_name: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     promo_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
+    referral_code: Mapped[str | None] = mapped_column(String(16), unique=True, nullable=True, index=True)
+    referred_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

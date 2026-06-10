@@ -10,7 +10,9 @@ from app.application.exceptions import (
     VpnProvisioningError,
 )
 from app.application.services.admin_log_service import AdminLogService
+from app.application.dto.referral import ReferralNotification
 from app.application.services.promo_code_service import PromoCodeService
+from app.application.services.referral_service import ReferralService
 from app.application.services.vpn_provisioning_service import VpnProvisioningService
 from app.domain.enums import AdminActionType, PaymentRequestStatus, ProvisionAction
 from app.infrastructure.db.uow import UnitOfWork
@@ -29,6 +31,7 @@ class ApprovalOutcome:
     failed: bool
     request_id: int
     telegram_id: int
+    referral_notifications: list[ReferralNotification]
 
 
 class PaymentApprovalService:
@@ -40,11 +43,13 @@ class PaymentApprovalService:
         provisioning_service: VpnProvisioningService,
         admin_log_service: AdminLogService,
         promo_code_service: PromoCodeService | None = None,
+        referral_service: ReferralService | None = None,
     ) -> None:
         self._uow = uow
         self._provisioning = provisioning_service
         self._admin_log = admin_log_service
         self._promo = promo_code_service
+        self._referral = referral_service
 
     async def approve_with_provisioning(
         self,
@@ -100,6 +105,7 @@ class PaymentApprovalService:
                 failed=True,
                 request_id=request.id,
                 telegram_id=user.telegram_id,
+                referral_notifications=[],
             )
 
         if result.partial:
@@ -134,6 +140,7 @@ class PaymentApprovalService:
                 failed=False,
                 request_id=request.id,
                 telegram_id=user.telegram_id,
+                referral_notifications=[],
             )
 
         if result.vpn_account_id is not None:
@@ -163,6 +170,11 @@ class PaymentApprovalService:
                 },
             )
 
+        referral_notifications: list[ReferralNotification] = []
+        if self._referral is not None:
+            referral_outcome = await self._referral.process_paid_payment(request)
+            referral_notifications = referral_outcome.notifications
+
         return ApprovalOutcome(
             provisioning=result,
             notify_customer=True,
@@ -173,4 +185,5 @@ class PaymentApprovalService:
             failed=False,
             request_id=request.id,
             telegram_id=user.telegram_id,
+            referral_notifications=referral_notifications,
         )

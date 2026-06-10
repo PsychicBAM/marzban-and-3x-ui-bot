@@ -85,7 +85,7 @@ Buttons: link, QR, renew.
 
 ## Admin Panel
 
-Sections: requests, clients, create key, tariffs, statistics, settings, broadcasts, promo codes.
+Sections: requests, clients, create key, tariffs, statistics, settings, broadcasts, promo codes, referrals.
 
 Client card: full name, username, telegram_id, VPN name, status, tariff, expiry, traffic, IP limit, Marzban/3x-ui status.
 
@@ -421,6 +421,39 @@ Migration: `0008_promo_codes`.
 
 Admin logs: `promo_code_created`, `promo_code_disabled`, `promo_code_enabled`, `promo_code_applied`, `promo_code_redeemed`.
 
+## Referral Program
+
+Admin menu **🎁 Рефералы** (`ReferralService`):
+
+- **⚙️ Настройки** — fully editable: enabled, reward days per paid referral, milestone count/reward, min purchase amount, first-purchase-only, zero-amount rewards, auto-apply
+- **📊 Статистика** — registrations, paid referrals, applied/pending rewards
+- **👥 Топ рефералов** — leaders by paid referrals
+- **📋 История** — recent events and rewards
+- **🎁 Награды** — reward list
+
+### Customer
+
+- **🎁 Пригласить друга** — personal link `https://t.me/{bot}?start=ref_{code}`, stats, bonuses, apply pending
+- `/start ref_{code}` — attach referrer for new users only; no self-referral; ignored when program disabled
+
+### Processing
+
+On approved paid purchase (admin approval or zero-amount promo if `allow_zero_amount_rewards`):
+
+- Validate min amount, first-purchase-only, zero-amount rules
+- Create `per_referral` reward; milestone reward when paid count reaches threshold (once per referrer)
+- Auto-extend referrer VPN if `apply_reward_automatically` and active account exists; else `pending`
+
+Not rewarded: free plans, zero-amount (unless allowed), failed/canceled, self-referrals.
+
+### Database
+
+- `users.referral_code`, `users.referred_by_user_id`
+- `referral_settings` (single row, defaults seeded)
+- `referral_events`, `referral_rewards` with partial unique indexes for idempotency
+
+Migration: `0009_referrals`.
+
 ### Soft delete vs disabled
 
 - **Disabled:** account remains in DB and panels; can be re-enabled if expiry valid.
@@ -569,4 +602,5 @@ Installer: `bash <(curl -Ls https://raw.githubusercontent.com/PsychicBAM/marzban
 13. ✅ Payment/support/instruction settings in `⚙️ Настройки` (9C)
 14. ✅ Admin broadcasts / promotions (`📣 Рассылки`, migration `0007`)
 15. ✅ Promo codes / discounts (`🎁 Промокоды`, migration `0008`)
-16. ✅ GitHub release + one-command install (`install.sh`, `update.sh`, `backup.sh`, QA checklist)
+16. ✅ Referral program (`🎁 Рефералы`, migration `0009`)
+17. ✅ GitHub release + one-command install (`install.sh`, `update.sh`, `backup.sh`, QA checklist)

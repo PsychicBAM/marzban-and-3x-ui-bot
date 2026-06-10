@@ -6,6 +6,7 @@ from app.infrastructure.db.repositories.admin_customer_repo import AdminCustomer
 from app.infrastructure.db.repositories.broadcast_audience_repo import BroadcastAudienceRepository
 from app.infrastructure.db.repositories.broadcast_repo import BroadcastRepository
 from app.infrastructure.db.repositories.promo_code_repo import PromoCodeRepository
+from app.infrastructure.db.repositories.referral_repo import ReferralRepository
 from app.infrastructure.db.repositories.admin_log_repo import AdminLogRepository
 from app.infrastructure.db.repositories.notification_repo import NotificationRepository
 from app.infrastructure.db.repositories.payment_request_repo import PaymentRequestRepository
@@ -33,6 +34,7 @@ class UnitOfWork:
         self.broadcasts = BroadcastRepository(session)
         self.broadcast_audience = BroadcastAudienceRepository(session)
         self.promo_codes = PromoCodeRepository(session)
+        self.referrals = ReferralRepository(session)
 
     async def commit(self) -> None:
         await self.session.commit()

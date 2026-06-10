@@ -20,6 +20,7 @@ from app.application.services.provisioning_notification_service import Provision
 from app.application.services.qr_code_service import QrCodeService
 from app.application.services.settings_service import SettingsService
 from app.application.services.statistics_service import StatisticsService
+from app.application.services.referral_service import ReferralService
 from app.application.services.subscription_purchase_service import SubscriptionPurchaseService
 from app.application.services.user_service import UserService
 from app.config.settings import Settings, get_settings
@@ -47,7 +48,6 @@ class DatabaseMiddleware(BaseMiddleware):
             data["uow"] = uow
             settings_service = SettingsService(uow, settings)
             data["settings_service"] = settings_service
-            data["user_service"] = UserService(uow, settings)
             data["plan_service"] = PlanService(uow, settings)
             data["payment_request_service"] = PaymentRequestService(uow, settings, settings_service)
             data["subscription_purchase_service"] = SubscriptionPurchaseService(uow)
@@ -65,19 +65,6 @@ class DatabaseMiddleware(BaseMiddleware):
             data["customer_vpn_service"] = customer_vpn_service
             promo_code_service = PromoCodeService(uow, admin_log_service)
             data["promo_code_service"] = promo_code_service
-            data["promo_activation_service"] = PromoActivationService(
-                uow,
-                settings,
-                provisioning_service,
-                admin_log_service,
-                promo_code_service,
-            )
-            data["payment_approval_service"] = PaymentApprovalService(
-                uow,
-                provisioning_service,
-                admin_log_service,
-                promo_code_service=promo_code_service,
-            )
             qr_code_service = QrCodeService()
             data["qr_code_service"] = qr_code_service
             provisioning_notification_service = ProvisioningNotificationService(qr_code_service)
@@ -88,6 +75,29 @@ class DatabaseMiddleware(BaseMiddleware):
                 customer_vpn_service=customer_vpn_service,
                 admin_log_service=admin_log_service,
                 provisioning_notification_service=provisioning_notification_service,
+            )
+            referral_service = ReferralService(
+                uow,
+                settings,
+                admin_log_service,
+                data["admin_customer_service"],
+            )
+            data["referral_service"] = referral_service
+            data["user_service"] = UserService(uow, settings, referral_service)
+            data["payment_approval_service"] = PaymentApprovalService(
+                uow,
+                provisioning_service,
+                admin_log_service,
+                promo_code_service=promo_code_service,
+                referral_service=referral_service,
+            )
+            data["promo_activation_service"] = PromoActivationService(
+                uow,
+                settings,
+                provisioning_service,
+                admin_log_service,
+                promo_code_service,
+                referral_service=referral_service,
             )
             data["expiry_notification_service"] = ExpiryNotificationService(
                 uow=uow,

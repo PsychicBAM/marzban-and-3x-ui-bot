@@ -20,6 +20,23 @@ class UserRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_referral_code(self, code: str) -> User | None:
+        stmt = select(User).where(User.referral_code == code.upper())
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def set_referral_code(self, user: User, code: str) -> User:
+        user.referral_code = code.upper()
+        await self._session.flush()
+        await self._session.refresh(user)
+        return user
+
+    async def set_referred_by(self, user: User, referrer_user_id: int) -> User:
+        user.referred_by_user_id = referrer_user_id
+        await self._session.flush()
+        await self._session.refresh(user)
+        return user
+
     async def create(
         self,
         *,
@@ -28,6 +45,8 @@ class UserRepository:
         first_name: str | None,
         last_name: str | None,
         is_admin: bool = False,
+        referred_by_user_id: int | None = None,
+        referral_code: str | None = None,
     ) -> User:
         user = User(
             telegram_id=telegram_id,
@@ -35,6 +54,8 @@ class UserRepository:
             first_name=first_name,
             last_name=last_name,
             is_admin=is_admin,
+            referred_by_user_id=referred_by_user_id,
+            referral_code=referral_code,
         )
         self._session.add(user)
         await self._session.flush()

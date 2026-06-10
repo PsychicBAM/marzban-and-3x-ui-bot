@@ -7,6 +7,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 from app.application.services.user_service import UserService
+from app.application.utils.referral_code import parse_start_referral_payload
 from app.config.settings import Settings
 from app.presentation.keyboards.admin import admin_main_keyboard
 from app.presentation.keyboards.customer import customer_main_keyboard
@@ -27,7 +28,11 @@ async def handle_start(
     if user is None:
         return
 
-    user_info = await user_service.register_or_update(map_telegram_user(user))
+    referral_code = parse_start_referral_payload(message.text)
+    user_info = await user_service.register_or_update(
+        map_telegram_user(user),
+        referral_code=referral_code,
+    )
     is_admin = settings.is_admin(user.id)
 
     logger.info(
