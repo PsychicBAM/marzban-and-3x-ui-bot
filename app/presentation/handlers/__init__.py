@@ -1,5 +1,6 @@
 from aiogram import Router
 
+from app.presentation.handlers.admin.broadcast import router as admin_broadcast_router
 from app.presentation.handlers.admin.clients import router as admin_clients_router
 from app.presentation.handlers.admin.settings import router as admin_settings_router
 from app.presentation.handlers.admin.settings_instruction import router as admin_settings_instruction_router
@@ -14,6 +15,7 @@ from app.presentation.handlers.admin.tariff_create import router as admin_tariff
 from app.presentation.handlers.admin.tariff_edit import router as admin_tariff_edit_router
 from app.presentation.handlers.admin.tariffs import router as admin_tariffs_router
 from app.presentation.handlers.customer.menu import router as customer_menu_router
+from app.presentation.handlers.customer.promo_settings import router as customer_promo_settings_router
 from app.presentation.handlers.customer.my_vpn import router as customer_my_vpn_router
 from app.presentation.handlers.customer.purchase import router as customer_purchase_router
 from app.presentation.handlers.customer.renewal import router as customer_renewal_router
@@ -27,6 +29,7 @@ def build_root_router() -> Router:
     root.include_router(customer_renewal_router)
     root.include_router(customer_my_vpn_router)
     root.include_router(customer_menu_router)
+    root.include_router(customer_promo_settings_router)
     root.include_router(admin_requests_router)
     root.include_router(admin_clients_router)
     root.include_router(admin_settings_router)
@@ -39,5 +42,6 @@ def build_root_router() -> Router:
     root.include_router(admin_tariff_edit_router)
     root.include_router(admin_tariff_actions_router)
     root.include_router(admin_manual_key_router)
+    root.include_router(admin_broadcast_router)
     root.include_router(admin_menu_router)
     return root

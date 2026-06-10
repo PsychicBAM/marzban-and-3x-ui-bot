@@ -90,3 +90,30 @@ class AdminActionType(StrEnum):
     SUPPORT_SETTINGS_CLEARED = "support_settings_cleared"
     INSTRUCTION_SETTINGS_UPDATED = "instruction_settings_updated"
     INSTRUCTION_SETTINGS_CLEARED = "instruction_settings_cleared"
+    BROADCAST_CREATED = "broadcast_created"
+    BROADCAST_SENT = "broadcast_sent"
+    BROADCAST_FAILED = "broadcast_failed"
+
+
+class BroadcastTargetType(StrEnum):
+    ALL = "all"
+    ACTIVE_VPN = "active_vpn"
+    EXPIRED_VPN = "expired_vpn"
+    NO_ACTIVE_VPN = "no_active_vpn"
+    EXPIRING_SOON = "expiring_soon"
+    PROMO_ENABLED = "promo_enabled"
+
+
+class BroadcastStatus(StrEnum):
+    DRAFT = "draft"
+    SENDING = "sending"
+    SENT = "sent"
+    FAILED = "failed"
+    SCHEDULED = "scheduled"
+
+
+class BroadcastRecipientStatus(StrEnum):
+    PENDING = "pending"
+    SENT = "sent"
+    FAILED = "failed"
+    BLOCKED = "blocked"

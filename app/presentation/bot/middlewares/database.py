@@ -7,6 +7,8 @@ from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 
 from app.application.services.admin_log_service import AdminLogService
+from app.application.services.broadcast_sender_service import BroadcastSenderService
+from app.application.services.broadcast_service import BroadcastService
 from app.application.services.expiry_notification_service import ExpiryNotificationService
 from app.application.services.free_plan_activation_service import FreePlanActivationService
 from app.application.services.payment_approval_service import PaymentApprovalService
@@ -88,4 +90,7 @@ class DatabaseMiddleware(BaseMiddleware):
                 admin_log_service,
             )
             data["manual_key_flow_service"] = create_manual_key_flow_service(uow, data["plan_service"])
+            broadcast_service = BroadcastService(uow, admin_log_service)
+            data["broadcast_service"] = broadcast_service
+            data["broadcast_sender_service"] = BroadcastSenderService(broadcast_service)
             return await handler(event, data)

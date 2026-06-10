@@ -85,7 +85,7 @@ Buttons: link, QR, renew.
 
 ## Admin Panel
 
-Sections: requests, clients, create key, tariffs, statistics, settings.
+Sections: requests, clients, create key, tariffs, statistics, settings, broadcasts.
 
 Client card: full name, username, telegram_id, VPN name, status, tariff, expiry, traffic, IP limit, Marzban/3x-ui status.
 
@@ -93,7 +93,7 @@ Actions: send link, send QR, renew, disable, enable, change IP limit, clear IP, 
 
 ## Database Tables
 
-- `users` — Telegram users
+- `users` — Telegram users (`promo_enabled` — opt-in for promotional broadcasts, default `true`)
 - `plans` — tariffs
 - `vpn_panels` — panel configurations
 - `vpn_accounts` — VPN subscriptions (soft delete)
@@ -362,6 +362,29 @@ Admin menu **👥 Клиенты** (`AdminCustomerService`) — **one row per `v
 
 Users with a single subscription see the same UX (one list row, one card).
 
+## Admin Broadcasts / Promotions
+
+Admin menu **📣 Рассылки** (`BroadcastService`, `BroadcastSenderService`):
+
+- **➕ Создать рассылку** — FSM: title → text → optional photo (`file_id`) → audience → preview → confirm
+- **📋 История рассылок** — recent broadcasts with status and sent/total counts
+- Message: text-only or photo + HTML-escaped caption
+- Audiences: all users, active VPN, expired VPN, no active VPN, expiring ≤7 days, promo-subscribed
+- Always excludes `promo_enabled=false` and `telegram_id=0` (system user)
+- Sender: gradual delivery (`~50ms` delay), `TelegramRetryAfter` sleep+retry, blocked/chat-not-found → recipient `blocked`/`failed`
+- Admin logs: `broadcast_created`, `broadcast_sent`, `broadcast_failed`
+
+### Customer promo opt-out
+
+Customer menu **🔔 Акции и новости** — toggle `users.promo_enabled` (default on). Disabled users are excluded from all promotional broadcasts.
+
+### Database
+
+- `broadcasts` — campaign metadata and aggregate counts
+- `broadcast_recipients` — per-user delivery status (`pending` / `sent` / `failed` / `blocked`)
+
+Migration: `0007_broadcasts`.
+
 ### Soft delete vs disabled
 
 - **Disabled:** account remains in DB and panels; can be re-enabled if expiry valid.
@@ -508,4 +531,5 @@ Installer: `bash <(curl -Ls https://raw.githubusercontent.com/PsychicBAM/marzban
 11. ✅ Admin statistics (9A)
 12. ✅ Admin manual VPN key creation (9B)
 13. ✅ Payment/support/instruction settings in `⚙️ Настройки` (9C)
-14. ✅ GitHub release + one-command install (`install.sh`, `update.sh`, `backup.sh`, QA checklist)
+14. ✅ Admin broadcasts / promotions (`📣 Рассылки`, migration `0007`)
+15. ✅ GitHub release + one-command install (`install.sh`, `update.sh`, `backup.sh`, QA checklist)

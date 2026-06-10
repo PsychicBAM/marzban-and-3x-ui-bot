@@ -41,6 +41,12 @@ class UserRepository:
         await self._session.refresh(user)
         return user
 
+    async def set_promo_enabled(self, user: User, *, enabled: bool) -> User:
+        user.promo_enabled = enabled
+        await self._session.flush()
+        await self._session.refresh(user)
+        return user
+
     async def update_profile(
         self,
         user: User,
