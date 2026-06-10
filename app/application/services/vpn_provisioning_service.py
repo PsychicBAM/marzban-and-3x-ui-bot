@@ -83,9 +83,10 @@ class VpnProvisioningService:
             )
             new_db_record = ExpiryCalculator.requires_new_db_record(renewal_candidate)
 
+        duration_days = plan.duration_days + (request.extra_days_from_promo or 0)
         expiry_at, action = ExpiryCalculator.calculate(
             now=now,
-            duration_days=plan.duration_days,
+            duration_days=duration_days,
             account=renewal_candidate,
         )
 

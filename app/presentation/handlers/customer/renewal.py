@@ -8,6 +8,11 @@ from aiogram.types import CallbackQuery, Message
 from app.application.exceptions import PaymentRequestDuplicateError, PaymentRequestNotFoundError
 from app.application.services.admin_log_service import AdminLogService
 from app.application.services.customer_vpn_service import CustomerVpnService
+from app.application.services.promo_activation_service import PromoActivationService
+from app.domain.enums import PaymentRequestType
+from app.presentation.services.customer_provisioning_delivery import deliver_provisioning_to_customer
+from app.presentation.services.promo_checkout_helpers import get_pricing_from_state, show_promo_prompt
+from app.application.services.provisioning_notification_service import ProvisioningNotificationService
 from app.application.services.payment_request_service import PaymentRequestService
 from app.application.services.plan_service import PlanService
 from app.config.settings import Settings
@@ -19,7 +24,6 @@ from app.presentation.keyboards.renewal import (
     RENEW_CANCEL,
     RENEW_PAID_PREFIX,
     RENEW_SELECT_PREFIX,
-    renewal_checkout_keyboard,
     renewal_plan_keyboard,
 )
 from app.presentation.states.renewal import RenewReceiptStates
@@ -77,25 +81,13 @@ async def handle_renew_plan_selected(
         await callback.answer("Тариф недоступен.", show_alert=True)
         return
 
-    vpn_account = await _resolve_account(customer_vpn_service, callback.from_user.id, vpn_account_id)
-    expected_expiry, current_expiry = await payment_request_service.preview_renewal_expiry(
-        plan_duration_days=plan.duration_days,
-        vpn_account=vpn_account,
-    )
-
-    payment_details = await payment_request_service.get_payment_details_text()
-    has_details = await payment_request_service.has_payment_details()
-    text = payment_request_service.format_renewal_checkout(
-        plan_details=plan_service.format_plan_details(plan),
-        payment_details=payment_details,
-        has_payment_details=has_details,
-        current_expiry=current_expiry,
-        expected_expiry=expected_expiry,
-        has_account=vpn_account is not None,
-    )
-    await callback.message.edit_text(
-        text,
-        reply_markup=renewal_checkout_keyboard(plan.id, vpn_account_id=vpn_account_id),
+    await show_promo_prompt(
+        callback.message,
+        state,
+        flow="renewal",
+        plan_id=plan.id,
+        request_type=PaymentRequestType.RENEWAL.value,
+        vpn_account_id=vpn_account_id,
     )
     await callback.answer()
 
@@ -115,7 +107,11 @@ async def handle_renew_cancel(callback: CallbackQuery, state: FSMContext) -> Non
 async def handle_renew_paid(
     callback: CallbackQuery,
     state: FSMContext,
+    bot: Bot,
+    plan_service: PlanService,
     payment_request_service: PaymentRequestService,
+    promo_activation_service: PromoActivationService,
+    provisioning_notification_service: ProvisioningNotificationService,
 ) -> None:
     if callback.data is None or callback.from_user is None or callback.message is None:
         await callback.answer()
@@ -134,7 +130,43 @@ async def handle_renew_paid(
         )
         return
 
+    data = await state.get_data()
     await state.update_data(plan_id=plan_id, vpn_account_id=vpn_account_id or None)
+    pricing = await get_pricing_from_state({**data, "plan_id": plan_id, "vpn_account_id": vpn_account_id})
+    plan = await plan_service.get_active_plan(plan_id)
+    if (
+        plan is not None
+        and pricing["final_amount"] is not None
+        and pricing["final_amount"] == 0
+        and pricing["promo_code_id"]
+    ):
+        try:
+            outcome = await promo_activation_service.activate(
+                telegram_id=callback.from_user.id,
+                plan_id=plan_id,
+                request_type=PaymentRequestType.RENEWAL.value,
+                promo_code_id=int(pricing["promo_code_id"]),
+                original_amount=pricing["original_amount"] or plan.price,
+                discount_amount=pricing["discount_amount"],
+                final_amount=pricing["final_amount"],
+                extra_days_from_promo=pricing["extra_days_from_promo"],
+                vpn_account_id=vpn_account_id,
+            )
+        except PaymentRequestNotFoundError as exc:
+            await callback.answer(exc.message, show_alert=True)
+            return
+        await state.clear()
+        if outcome.notify_customer and outcome.provisioning is not None:
+            await deliver_provisioning_to_customer(
+                bot,
+                telegram_id=outcome.telegram_id,
+                provisioning=outcome.provisioning,
+                notification_service=provisioning_notification_service,
+            )
+        await callback.message.answer(outcome.customer_message, reply_markup=customer_main_keyboard())
+        await callback.answer("✅ VPN продлён по промокоду.")
+        return
+
     await state.set_state(RenewReceiptStates.waiting_receipt)
     await callback.message.answer(RECEIPT_PROMPT)
     await callback.answer()
@@ -306,6 +338,7 @@ async def _submit_renew_receipt(
         return
     resolved_account_id = vpn_account_id if isinstance(vpn_account_id, int) else None
 
+    pricing = await get_pricing_from_state(data)
     try:
         request = await payment_request_service.create_renewal_request(
             telegram_id=message.from_user.id,
@@ -315,6 +348,11 @@ async def _submit_renew_receipt(
             receipt_file_type=receipt_file_type,
             user_comment=user_comment,
             receipt_message_id=receipt_message_id,
+            promo_code_id=pricing["promo_code_id"],
+            original_amount=pricing["original_amount"],
+            discount_amount=pricing["discount_amount"],
+            final_amount=pricing["final_amount"],
+            extra_days_from_promo=pricing["extra_days_from_promo"],
         )
     except PaymentRequestDuplicateError as exc:
         await state.clear()

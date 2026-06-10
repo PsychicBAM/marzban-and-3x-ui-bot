@@ -12,6 +12,8 @@ from app.application.services.broadcast_service import BroadcastService
 from app.application.services.expiry_notification_service import ExpiryNotificationService
 from app.application.services.free_plan_activation_service import FreePlanActivationService
 from app.application.services.payment_approval_service import PaymentApprovalService
+from app.application.services.promo_activation_service import PromoActivationService
+from app.application.services.promo_code_service import PromoCodeService
 from app.application.services.payment_request_service import PaymentRequestService
 from app.application.services.plan_service import PlanService
 from app.application.services.provisioning_notification_service import ProvisioningNotificationService
@@ -61,10 +63,20 @@ class DatabaseMiddleware(BaseMiddleware):
             )
             customer_vpn_service = create_customer_vpn_service(uow, settings)
             data["customer_vpn_service"] = customer_vpn_service
+            promo_code_service = PromoCodeService(uow, admin_log_service)
+            data["promo_code_service"] = promo_code_service
+            data["promo_activation_service"] = PromoActivationService(
+                uow,
+                settings,
+                provisioning_service,
+                admin_log_service,
+                promo_code_service,
+            )
             data["payment_approval_service"] = PaymentApprovalService(
                 uow,
                 provisioning_service,
                 admin_log_service,
+                promo_code_service=promo_code_service,
             )
             qr_code_service = QrCodeService()
             data["qr_code_service"] = qr_code_service

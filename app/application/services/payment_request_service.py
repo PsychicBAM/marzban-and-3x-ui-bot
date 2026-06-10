@@ -99,6 +99,11 @@ class PaymentRequestService:
         receipt_message_id: int | None = None,
         target_vpn_account_name: str | None = None,
         target_display_name: str | None = None,
+        promo_code_id: int | None = None,
+        original_amount: Decimal | None = None,
+        discount_amount: Decimal = Decimal("0"),
+        final_amount: Decimal | None = None,
+        extra_days_from_promo: int = 0,
     ) -> PaymentRequestInfo:
         user = await self._uow.users.get_by_telegram_id(telegram_id)
         if user is None:
@@ -120,17 +125,23 @@ class PaymentRequestService:
                     "Имя подписки уже занято. Выберите другое название.",
                 )
 
+        pay_amount = final_amount if final_amount is not None else plan.price
         request = await self._uow.payment_requests.create(
             user_id=user.id,
             plan_id=plan.id,
             request_type=PaymentRequestType.PURCHASE.value,
-            amount=plan.price,
+            amount=pay_amount,
             receipt_file_id=receipt_file_id,
             receipt_file_type=receipt_file_type,
             user_comment=user_comment,
             receipt_message_id=receipt_message_id,
             target_vpn_account_name=target_vpn_account_name,
             target_display_name=target_display_name,
+            promo_code_id=promo_code_id,
+            original_amount=original_amount if original_amount is not None else plan.price,
+            discount_amount=discount_amount,
+            final_amount=pay_amount,
+            extra_days_from_promo=extra_days_from_promo,
         )
         request = await self._uow.payment_requests.get_by_id_with_relations(request.id)
         if request is None:
@@ -152,6 +163,11 @@ class PaymentRequestService:
         receipt_file_type: str,
         user_comment: str | None,
         receipt_message_id: int | None = None,
+        promo_code_id: int | None = None,
+        original_amount: Decimal | None = None,
+        discount_amount: Decimal = Decimal("0"),
+        final_amount: Decimal | None = None,
+        extra_days_from_promo: int = 0,
     ) -> PaymentRequestInfo:
         user = await self._uow.users.get_by_telegram_id(telegram_id)
         if user is None:
@@ -178,16 +194,22 @@ class PaymentRequestService:
 
         resolved_account_id = renewal_account.id if renewal_account is not None else None
 
+        pay_amount = final_amount if final_amount is not None else plan.price
         request = await self._uow.payment_requests.create(
             user_id=user.id,
             plan_id=plan.id,
             request_type=PaymentRequestType.RENEWAL.value,
-            amount=plan.price,
+            amount=pay_amount,
             receipt_file_id=receipt_file_id,
             receipt_file_type=receipt_file_type,
             user_comment=user_comment,
             receipt_message_id=receipt_message_id,
             vpn_account_id=resolved_account_id,
+            promo_code_id=promo_code_id,
+            original_amount=original_amount if original_amount is not None else plan.price,
+            discount_amount=discount_amount,
+            final_amount=pay_amount,
+            extra_days_from_promo=extra_days_from_promo,
         )
         request = await self._uow.payment_requests.get_by_id_with_relations(request.id)
         if request is None:
@@ -209,11 +231,12 @@ class PaymentRequestService:
         *,
         plan_duration_days: int,
         vpn_account: VpnAccount | None,
+        extra_days: int = 0,
     ) -> tuple[datetime, datetime | None]:
         now = datetime.now(UTC)
         expected, _ = ExpiryCalculator.calculate(
             now=now,
-            duration_days=plan_duration_days,
+            duration_days=plan_duration_days + extra_days,
             account=vpn_account,
         )
         current = vpn_account.expiry_date if vpn_account is not None else None
@@ -262,10 +285,14 @@ class PaymentRequestService:
         payment_details: str,
         has_payment_details: bool,
         is_free: bool = False,
+        promo_summary: str | None = None,
     ) -> str:
         if is_free:
             return plan_details
         lines = [plan_details, ""]
+        if promo_summary:
+            lines.append(promo_summary)
+            lines.append("")
         if has_payment_details:
             lines.append("💳 <b>Реквизиты оплаты:</b>")
             lines.append(payment_details)
@@ -283,8 +310,12 @@ class PaymentRequestService:
         current_expiry: datetime | None,
         expected_expiry: datetime,
         has_account: bool,
+        promo_summary: str | None = None,
     ) -> str:
         lines = ["🔄 <b>Продление VPN</b>", "", plan_details, ""]
+        if promo_summary:
+            lines.append(promo_summary)
+            lines.append("")
         if has_account and current_expiry is not None:
             lines.append(
                 f"📅 Текущая дата окончания: {self._format_datetime(current_expiry)}"
@@ -311,11 +342,15 @@ class PaymentRequestService:
             username = f"@{item.username}" if item.username else "—"
             devices = self._format_devices(item.plan_ip_limit)
             created = self._format_datetime(item.created_at)
+            duration = item.effective_duration_days or item.plan_duration_days
+            amount_line = f"{item.amount:.0f} ₽"
+            if item.promo_code and item.original_amount is not None:
+                amount_line = f"{item.amount:.0f} ₽ (было {item.original_amount:.0f})"
             lines.append(
                 f"<b>#{item.id}</b> · {request_type}\n"
                 f"👤 {item.user_full_name} ({username})\n"
                 f"🆔 <code>{item.telegram_id}</code>\n"
-                f"📦 {item.plan_name} · {item.amount:.0f} ₽ · {item.plan_duration_days} дн.\n"
+                f"📦 {item.plan_name} · {amount_line} · {duration} дн.\n"
                 f"📱 {devices} · 🕐 {created}"
             )
             lines.append("")
@@ -339,13 +374,19 @@ class PaymentRequestService:
             "",
             f"📦 Тариф: {item.plan_name}",
             f"💰 Сумма: {item.amount:.0f} ₽",
-            f"📅 Срок: {item.plan_duration_days} дн.",
+        ]
+        if item.promo_code:
+            lines.extend(self._promo_detail_lines(item))
+        lines.extend(
+            [
+            f"📅 Срок: {item.effective_duration_days or item.plan_duration_days} дн.",
             f"📶 Трафик: {traffic}",
             f"📱 Устройств: {devices}",
             f"🖥 Режим выдачи: {ISSUING_MODE_LABELS.get(item.plan_issuing_mode, item.plan_issuing_mode)}",
             "",
             f"🕐 Создана: {self._format_datetime(item.created_at)}",
-        ]
+            ]
+        )
         if item.target_display_name:
             lines.append(f"🏷 Название подписки: {item.target_display_name}")
         if item.target_vpn_account_name:
@@ -388,7 +429,8 @@ class PaymentRequestService:
                 f"👤 Клиент: {client}",
                 f"🆔 User ID: <code>{item.telegram_id}</code>",
                 f"💰 Тариф: {item.plan_name}",
-                f"💵 Сумма: {item.amount:.0f} ₽",
+                f"💵 Сумма: {item.amount:.0f} ₽"
+                + (f" (было {item.original_amount:.0f} ₽)" if item.original_amount and item.discount_amount > 0 else ""),
                 f"🧾 Чек: {receipt}",
                 f"🕒 Время: {self._format_datetime(item.created_at)}",
             ],
@@ -429,12 +471,14 @@ class PaymentRequestService:
         renewal_account = request.vpn_account
         current_expiry_at: datetime | None = None
         expected_expiry_at: datetime | None = None
+        extra_days = request.extra_days_from_promo or 0
+        effective_duration = plan.duration_days + extra_days
         if request.request_type == PaymentRequestType.RENEWAL.value:
             if renewal_account is not None:
                 current_expiry_at = renewal_account.expiry_date
             expected_expiry_at, _ = ExpiryCalculator.calculate(
                 now=datetime.now(UTC),
-                duration_days=plan.duration_days,
+                duration_days=effective_duration,
                 account=renewal_account,
             )
 
@@ -444,6 +488,8 @@ class PaymentRequestService:
             renewal_vpn_account_name = renewal_account.vpn_account_name
             renewal_display_name = renewal_account.display_name
 
+        promo_code_str = request.promo_code.code if request.promo_code is not None else None
+
         return PaymentRequestInfo(
             id=request.id,
             user_id=request.user_id,
@@ -451,6 +497,13 @@ class PaymentRequestService:
             request_type=request.request_type,
             status=request.status,
             amount=request.amount,
+            promo_code_id=request.promo_code_id,
+            promo_code=promo_code_str,
+            original_amount=request.original_amount,
+            discount_amount=request.discount_amount,
+            final_amount=request.final_amount,
+            extra_days_from_promo=extra_days,
+            effective_duration_days=effective_duration,
             receipt_file_id=request.receipt_file_id,
             receipt_file_type=request.receipt_file_type,
             user_comment=request.user_comment,
@@ -475,6 +528,21 @@ class PaymentRequestService:
             expected_expiry_at=expected_expiry_at,
         )
 
+    @staticmethod
+    def _promo_detail_lines(item: PaymentRequestInfo) -> list[str]:
+        lines = [
+            f"🎁 Промокод: <code>{item.promo_code}</code>",
+        ]
+        if item.original_amount is not None:
+            lines.append(f"💵 Было: {item.original_amount:.0f} ₽")
+        if item.discount_amount > 0:
+            lines.append(f"🏷 Скидка: {item.discount_amount:.0f} ₽")
+        if item.final_amount is not None:
+            lines.append(f"✅ К оплате: {item.final_amount:.0f} ₽")
+        if item.extra_days_from_promo > 0:
+            lines.append(f"➕ Доп. дни: {item.extra_days_from_promo}")
+        return lines
+
     def format_separate_checkout(
         self,
         *,
@@ -483,6 +551,7 @@ class PaymentRequestService:
         has_payment_details: bool,
         display_name: str,
         vpn_account_name: str,
+        promo_summary: str | None = None,
     ) -> str:
         lines = [
             "➕ <b>Отдельная подписка</b>",
@@ -493,6 +562,9 @@ class PaymentRequestService:
             f"👤 Имя в панели: <code>{vpn_account_name}</code>",
             "",
         ]
+        if promo_summary:
+            lines.append(promo_summary)
+            lines.append("")
         if has_payment_details:
             lines.append("💳 <b>Реквизиты оплаты:</b>")
             lines.append(payment_details)

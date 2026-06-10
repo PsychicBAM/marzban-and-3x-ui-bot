@@ -28,6 +28,7 @@ class PaymentRequestRepository:
                 selectinload(PaymentRequest.user),
                 selectinload(PaymentRequest.plan),
                 selectinload(PaymentRequest.vpn_account),
+                selectinload(PaymentRequest.promo_code),
             )
         )
         result = await self._session.execute(stmt)
@@ -54,6 +55,7 @@ class PaymentRequestRepository:
                 selectinload(PaymentRequest.user),
                 selectinload(PaymentRequest.plan),
                 selectinload(PaymentRequest.vpn_account),
+                selectinload(PaymentRequest.promo_code),
             )
             .order_by(PaymentRequest.created_at.asc())
         )
@@ -140,6 +142,11 @@ class PaymentRequestRepository:
         vpn_account_id: int | None = None,
         target_vpn_account_name: str | None = None,
         target_display_name: str | None = None,
+        promo_code_id: int | None = None,
+        original_amount: Decimal | None = None,
+        discount_amount: Decimal = Decimal("0"),
+        final_amount: Decimal | None = None,
+        extra_days_from_promo: int = 0,
     ) -> PaymentRequest:
         request = PaymentRequest(
             user_id=user_id,
@@ -149,11 +156,55 @@ class PaymentRequestRepository:
             target_display_name=target_display_name,
             request_type=request_type,
             amount=amount,
+            promo_code_id=promo_code_id,
+            original_amount=original_amount,
+            discount_amount=discount_amount,
+            final_amount=final_amount,
+            extra_days_from_promo=extra_days_from_promo,
             receipt_file_id=receipt_file_id,
             receipt_file_type=receipt_file_type,
             user_comment=user_comment,
             receipt_message_id=receipt_message_id,
             status=PaymentRequestStatus.PENDING.value,
+        )
+        self._session.add(request)
+        await self._session.flush()
+        await self._session.refresh(request)
+        return request
+
+    async def create_approved_promo_request(
+        self,
+        *,
+        user_id: int,
+        plan_id: int,
+        request_type: str,
+        amount: Decimal,
+        promo_code_id: int,
+        original_amount: Decimal,
+        discount_amount: Decimal,
+        final_amount: Decimal,
+        extra_days_from_promo: int = 0,
+        vpn_account_id: int | None = None,
+        target_vpn_account_name: str | None = None,
+        target_display_name: str | None = None,
+    ) -> PaymentRequest:
+        now = datetime.now(UTC)
+        request = PaymentRequest(
+            user_id=user_id,
+            plan_id=plan_id,
+            vpn_account_id=vpn_account_id,
+            target_vpn_account_name=target_vpn_account_name,
+            target_display_name=target_display_name,
+            request_type=request_type,
+            amount=amount,
+            promo_code_id=promo_code_id,
+            original_amount=original_amount,
+            discount_amount=discount_amount,
+            final_amount=final_amount,
+            extra_days_from_promo=extra_days_from_promo,
+            status=PaymentRequestStatus.APPROVED.value,
+            approved_at=now,
+            processed_at=now,
         )
         self._session.add(request)
         await self._session.flush()

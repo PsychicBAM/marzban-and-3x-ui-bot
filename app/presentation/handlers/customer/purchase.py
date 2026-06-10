@@ -17,7 +17,10 @@ from app.application.services.payment_request_service import PaymentRequestServi
 from app.application.services.plan_service import PlanService
 from app.application.services.provisioning_notification_service import ProvisioningNotificationService
 from app.application.services.customer_vpn_service import CustomerVpnService
+from app.application.services.promo_activation_service import PromoActivationService
 from app.application.services.subscription_purchase_service import SubscriptionPurchaseService
+from app.domain.enums import PaymentRequestType
+from app.presentation.services.promo_checkout_helpers import get_pricing_from_state, show_promo_prompt
 from app.config.settings import Settings
 from app.domain.enums import AdminActionType
 from app.presentation.services.customer_provisioning_delivery import deliver_provisioning_to_customer
@@ -38,7 +41,6 @@ from app.presentation.keyboards.purchase import (
     purchase_renew_account_keyboard,
     purchase_separate_checkout_keyboard,
 )
-from app.presentation.keyboards.renewal import renewal_checkout_keyboard
 from app.presentation.keyboards.tariffs import PURCHASE_CALLBACK_PREFIX, plan_selection_keyboard
 from app.presentation.states.purchase import PurchaseReceiptStates, PurchaseSubscriptionStates
 
@@ -122,12 +124,7 @@ async def handle_plan_selected(
         await callback.answer()
         return
 
-    await _show_standard_checkout(
-        callback.message,
-        plan_service=plan_service,
-        payment_request_service=payment_request_service,
-        plan=plan,
-    )
+    await _show_standard_checkout(callback.message, state, plan=plan)
     await callback.answer()
 
 
@@ -170,11 +167,8 @@ async def handle_purchase_choice_renew(
     if len(accounts) == 1:
         await _show_renewal_checkout(
             callback.message,
-            plan_service=plan_service,
-            payment_request_service=payment_request_service,
-            customer_vpn_service=customer_vpn_service,
+            state,
             plan=plan,
-            telegram_id=callback.from_user.id,
             vpn_account_id=accounts[0].id,
         )
         await callback.answer()
@@ -195,7 +189,6 @@ async def handle_purchase_renew_account(
     payment_request_service: PaymentRequestService,
     customer_vpn_service: CustomerVpnService,
 ) -> None:
-    await state.clear()
     if callback.data is None or callback.message is None or callback.from_user is None:
         await callback.answer()
         return
@@ -213,11 +206,8 @@ async def handle_purchase_renew_account(
 
     await _show_renewal_checkout(
         callback.message,
-        plan_service=plan_service,
-        payment_request_service=payment_request_service,
-        customer_vpn_service=customer_vpn_service,
+        state,
         plan=plan,
-        telegram_id=callback.from_user.id,
         vpn_account_id=account_id,
     )
     await callback.answer()
@@ -301,17 +291,16 @@ async def handle_subscription_label(
         target_display_name=display_name,
     )
     await state.set_state(None)
-
-    payment_details = await payment_request_service.get_payment_details_text()
-    has_details = await payment_request_service.has_payment_details()
-    text = payment_request_service.format_separate_checkout(
-        plan_details=plan_service.format_plan_details(plan),
-        payment_details=payment_details,
-        has_payment_details=has_details,
-        display_name=display_name,
-        vpn_account_name=vpn_account_name,
+    await show_promo_prompt(
+        message,
+        state,
+        flow="separate",
+        plan_id=plan.id,
+        request_type=PaymentRequestType.PURCHASE.value,
+        target_vpn_account_name=vpn_account_name,
+        target_display_name=display_name,
+        edit=False,
     )
-    await message.answer(text, reply_markup=purchase_separate_checkout_keyboard(plan.id))
 
 
 @router.callback_query(F.data == PURCHASE_CANCEL)
@@ -396,14 +385,20 @@ async def handle_free_plan_activate(
 async def handle_purchase_paid(
     callback: CallbackQuery,
     state: FSMContext,
+    bot: Bot,
     plan_service: PlanService,
     payment_request_service: PaymentRequestService,
+    promo_activation_service: PromoActivationService,
+    provisioning_notification_service: ProvisioningNotificationService,
 ) -> None:
     await _start_receipt_flow(
         callback,
         state,
+        bot,
         plan_service=plan_service,
         payment_request_service=payment_request_service,
+        promo_activation_service=promo_activation_service,
+        provisioning_notification_service=provisioning_notification_service,
         prefix=PURCHASE_PAID_PREFIX,
         purchase_mode="purchase",
     )
@@ -413,14 +408,20 @@ async def handle_purchase_paid(
 async def handle_separate_purchase_paid(
     callback: CallbackQuery,
     state: FSMContext,
+    bot: Bot,
     plan_service: PlanService,
     payment_request_service: PaymentRequestService,
+    promo_activation_service: PromoActivationService,
+    provisioning_notification_service: ProvisioningNotificationService,
 ) -> None:
     await _start_receipt_flow(
         callback,
         state,
+        bot,
         plan_service=plan_service,
         payment_request_service=payment_request_service,
+        promo_activation_service=promo_activation_service,
+        provisioning_notification_service=provisioning_notification_service,
         prefix=PURCHASE_SEPARATE_PAID_PREFIX,
         purchase_mode="separate",
     )
@@ -514,58 +515,45 @@ async def handle_receipt_invalid(message: Message) -> None:
 
 async def _show_standard_checkout(
     message: Message,
+    state: FSMContext,
     *,
-    plan_service: PlanService,
-    payment_request_service: PaymentRequestService,
     plan,
 ) -> None:
-    payment_details = await payment_request_service.get_payment_details_text()
-    has_details = await payment_request_service.has_payment_details()
-    text = payment_request_service.format_purchase_checkout(
-        plan_details=plan_service.format_plan_details(plan),
-        payment_details=payment_details,
-        has_payment_details=has_details,
+    await show_promo_prompt(
+        message,
+        state,
+        flow="purchase",
+        plan_id=plan.id,
+        request_type=PaymentRequestType.PURCHASE.value,
     )
-    await message.edit_text(text, reply_markup=purchase_checkout_keyboard(plan.id))
 
 
 async def _show_renewal_checkout(
     message: Message,
+    state: FSMContext,
     *,
-    plan_service: PlanService,
-    payment_request_service: PaymentRequestService,
-    customer_vpn_service: CustomerVpnService,
     plan,
-    telegram_id: int,
     vpn_account_id: int,
 ) -> None:
-    vpn_account = await customer_vpn_service.get_account_for_user(telegram_id, vpn_account_id)
-    expected_expiry, current_expiry = await payment_request_service.preview_renewal_expiry(
-        plan_duration_days=plan.duration_days,
-        vpn_account=vpn_account,
-    )
-    payment_details = await payment_request_service.get_payment_details_text()
-    has_details = await payment_request_service.has_payment_details()
-    text = payment_request_service.format_renewal_checkout(
-        plan_details=plan_service.format_plan_details(plan),
-        payment_details=payment_details,
-        has_payment_details=has_details,
-        current_expiry=current_expiry,
-        expected_expiry=expected_expiry,
-        has_account=vpn_account is not None,
-    )
-    await message.edit_text(
-        text,
-        reply_markup=renewal_checkout_keyboard(plan.id, vpn_account_id=vpn_account_id),
+    await show_promo_prompt(
+        message,
+        state,
+        flow="purchase_renew",
+        plan_id=plan.id,
+        request_type=PaymentRequestType.RENEWAL.value,
+        vpn_account_id=vpn_account_id,
     )
 
 
 async def _start_receipt_flow(
     callback: CallbackQuery,
     state: FSMContext,
+    bot: Bot,
     *,
     plan_service: PlanService,
     payment_request_service: PaymentRequestService,
+    promo_activation_service: PromoActivationService,
+    provisioning_notification_service: ProvisioningNotificationService,
     prefix: str,
     purchase_mode: str,
 ) -> None:
@@ -597,6 +585,39 @@ async def _start_receipt_flow(
         return
 
     data = await state.get_data()
+    pricing = await get_pricing_from_state(data)
+    if pricing["final_amount"] is not None and pricing["final_amount"] == 0 and pricing["promo_code_id"]:
+        try:
+            target_name = data.get("target_vpn_account_name") if purchase_mode == "separate" else None
+            target_display = data.get("target_display_name") if purchase_mode == "separate" else None
+            outcome = await promo_activation_service.activate(
+                telegram_id=callback.from_user.id,
+                plan_id=plan_id,
+                request_type=PaymentRequestType.PURCHASE.value,
+                promo_code_id=int(pricing["promo_code_id"]),
+                original_amount=pricing["original_amount"] or plan.price,
+                discount_amount=pricing["discount_amount"],
+                final_amount=pricing["final_amount"],
+                extra_days_from_promo=pricing["extra_days_from_promo"],
+                target_vpn_account_name=target_name if isinstance(target_name, str) else None,
+                target_display_name=target_display if isinstance(target_display, str) else None,
+            )
+        except PaymentRequestNotFoundError as exc:
+            await callback.answer(exc.message, show_alert=True)
+            return
+        await state.clear()
+        if outcome.notify_customer and outcome.provisioning is not None:
+            await deliver_provisioning_to_customer(
+                bot,
+                telegram_id=outcome.telegram_id,
+                provisioning=outcome.provisioning,
+                notification_service=provisioning_notification_service,
+            )
+        if callback.message is not None:
+            await callback.message.answer(outcome.customer_message, reply_markup=customer_main_keyboard())
+        await callback.answer("✅ VPN активирован по промокоду.")
+        return
+
     if purchase_mode == "separate":
         target_name = data.get("target_vpn_account_name")
         target_display = data.get("target_display_name")
@@ -610,7 +631,7 @@ async def _start_receipt_flow(
             target_display_name=target_display,
         )
     else:
-        await state.update_data(plan_id=plan_id, purchase_mode="purchase")
+        await state.update_data(plan_id=plan_id, purchase_mode="purchase", **{k: v for k, v in pricing.items() if v is not None})
 
     await state.set_state(PurchaseReceiptStates.waiting_receipt)
     await callback.message.answer(RECEIPT_PROMPT)
@@ -641,6 +662,7 @@ async def _submit_receipt(
         return
 
     purchase_mode = data.get("purchase_mode", "purchase")
+    pricing = await get_pricing_from_state(data)
     try:
         if purchase_mode == "separate":
             target_name = data.get("target_vpn_account_name")
@@ -656,6 +678,11 @@ async def _submit_receipt(
                 receipt_message_id=receipt_message_id,
                 target_vpn_account_name=target_name,
                 target_display_name=target_display,
+                promo_code_id=pricing["promo_code_id"],
+                original_amount=pricing["original_amount"],
+                discount_amount=pricing["discount_amount"],
+                final_amount=pricing["final_amount"],
+                extra_days_from_promo=pricing["extra_days_from_promo"],
             )
         else:
             request = await payment_request_service.create_purchase_request(
@@ -665,6 +692,11 @@ async def _submit_receipt(
                 receipt_file_type=receipt_file_type,
                 user_comment=user_comment,
                 receipt_message_id=receipt_message_id,
+                promo_code_id=pricing["promo_code_id"],
+                original_amount=pricing["original_amount"],
+                discount_amount=pricing["discount_amount"],
+                final_amount=pricing["final_amount"],
+                extra_days_from_promo=pricing["extra_days_from_promo"],
             )
     except PaymentRequestDuplicateError as exc:
         await state.clear()

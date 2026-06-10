@@ -37,3 +37,10 @@ class PaymentRequestInfo:
     renewal_display_name: str | None = None
     current_expiry_at: datetime | None = None
     expected_expiry_at: datetime | None = None
+    promo_code_id: int | None = None
+    promo_code: str | None = None
+    original_amount: Decimal | None = None
+    discount_amount: Decimal = Decimal("0")
+    final_amount: Decimal | None = None
+    extra_days_from_promo: int = 0
+    effective_duration_days: int | None = None

@@ -93,6 +93,23 @@ class AdminActionType(StrEnum):
     BROADCAST_CREATED = "broadcast_created"
     BROADCAST_SENT = "broadcast_sent"
     BROADCAST_FAILED = "broadcast_failed"
+    PROMO_CODE_CREATED = "promo_code_created"
+    PROMO_CODE_DISABLED = "promo_code_disabled"
+    PROMO_CODE_ENABLED = "promo_code_enabled"
+    PROMO_CODE_APPLIED = "promo_code_applied"
+    PROMO_CODE_REDEEMED = "promo_code_redeemed"
+
+
+class PromoDiscountType(StrEnum):
+    PERCENT = "percent"
+    FIXED_AMOUNT = "fixed_amount"
+    EXTRA_DAYS = "extra_days"
+
+
+class PromoRequestScope(StrEnum):
+    PURCHASE = "purchase"
+    RENEWAL = "renewal"
+    ANY = "any"
 
 
 class BroadcastTargetType(StrEnum):

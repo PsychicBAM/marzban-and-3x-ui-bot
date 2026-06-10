@@ -10,6 +10,7 @@ from app.application.exceptions import (
     VpnProvisioningError,
 )
 from app.application.services.admin_log_service import AdminLogService
+from app.application.services.promo_code_service import PromoCodeService
 from app.application.services.vpn_provisioning_service import VpnProvisioningService
 from app.domain.enums import AdminActionType, PaymentRequestStatus, ProvisionAction
 from app.infrastructure.db.uow import UnitOfWork
@@ -38,10 +39,12 @@ class PaymentApprovalService:
         uow: UnitOfWork,
         provisioning_service: VpnProvisioningService,
         admin_log_service: AdminLogService,
+        promo_code_service: PromoCodeService | None = None,
     ) -> None:
         self._uow = uow
         self._provisioning = provisioning_service
         self._admin_log = admin_log_service
+        self._promo = promo_code_service
 
     async def approve_with_provisioning(
         self,
@@ -65,6 +68,8 @@ class PaymentApprovalService:
             action=AdminActionType.PAYMENT_APPROVED,
             details={"payment_request_id": request.id, "user_id": request.user_id},
         )
+        if self._promo is not None and request.promo_code_id is not None:
+            await self._promo.redeem_for_payment_request(request)
 
         try:
             result = await self._provisioning.provision_for_payment_request(request)

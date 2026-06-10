@@ -1,5 +1,6 @@
 from app.infrastructure.db.models.admin_log import AdminLog
 from app.infrastructure.db.models.broadcast import Broadcast, BroadcastRecipient
+from app.infrastructure.db.models.promo_code import PromoCode, PromoCodeRedemption
 from app.infrastructure.db.models.notification import Notification
 from app.infrastructure.db.models.payment_request import PaymentRequest
 from app.infrastructure.db.models.plan import Plan
@@ -12,6 +13,8 @@ __all__ = [
     "AdminLog",
     "Broadcast",
     "BroadcastRecipient",
+    "PromoCode",
+    "PromoCodeRedemption",
     "Notification",
     "PaymentRequest",
     "Plan",

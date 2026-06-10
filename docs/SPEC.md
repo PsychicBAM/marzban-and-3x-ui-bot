@@ -85,7 +85,7 @@ Buttons: link, QR, renew.
 
 ## Admin Panel
 
-Sections: requests, clients, create key, tariffs, statistics, settings, broadcasts.
+Sections: requests, clients, create key, tariffs, statistics, settings, broadcasts, promo codes.
 
 Client card: full name, username, telegram_id, VPN name, status, tariff, expiry, traffic, IP limit, Marzban/3x-ui status.
 
@@ -385,6 +385,42 @@ Customer menu **🔔 Акции и новости** — toggle `users.promo_enab
 
 Migration: `0007_broadcasts`.
 
+## Promo Codes / Discounts
+
+Admin menu **🎁 Промокоды** (`PromoCodeService`, `PromoActivationService`):
+
+- **➕ Создать промокод** — FSM: code → discount type (`percent` / `fixed_amount` / `extra_days`) → value → optional date range → max uses → max per user → scope (any / purchase / renewal / specific plan) → preview → confirm
+- **📋 Список промокодов** — code, type/value, active status, `used_count`/`max_uses`, expiry; enable/disable; view redemptions
+- **🔎 Найти промокод** — search by code fragment
+- **📊 Статистика** — total/active codes, redemptions, total discount amount
+
+### Customer checkout
+
+Before payment details (purchase, separate purchase, renewal):
+
+- «У вас есть промокод?» → enter code or continue without
+- Validation: active, date range, total/per-user limits, plan scope, request-type scope, `min_amount`, `new_users_only`
+- Discount rules: percent / fixed (capped at amount) / extra days (amount unchanged); `final_amount ≥ 0`
+- `payment_requests.amount` = `final_amount`; statistics revenue uses approved `amount` (post-discount)
+
+### Zero-amount promo
+
+If `final_amount == 0`: no receipt; auto-approve + provision (like free plan); redeem immediately.
+
+### Redemption timing
+
+`promo_code_redemptions` + `used_count` increment only on payment approval (manual/online) or zero-amount auto activation — not on failed/canceled requests.
+
+### Database
+
+- `promo_codes` — code (unique uppercase), discount type/value, limits, scope, `used_count`
+- `promo_code_redemptions` — per use with amounts and optional `payment_request_id`
+- `payment_requests` — `promo_code_id`, `original_amount`, `discount_amount`, `final_amount`, `extra_days_from_promo`
+
+Migration: `0008_promo_codes`.
+
+Admin logs: `promo_code_created`, `promo_code_disabled`, `promo_code_enabled`, `promo_code_applied`, `promo_code_redeemed`.
+
 ### Soft delete vs disabled
 
 - **Disabled:** account remains in DB and panels; can be re-enabled if expiry valid.
@@ -532,4 +568,5 @@ Installer: `bash <(curl -Ls https://raw.githubusercontent.com/PsychicBAM/marzban
 12. ✅ Admin manual VPN key creation (9B)
 13. ✅ Payment/support/instruction settings in `⚙️ Настройки` (9C)
 14. ✅ Admin broadcasts / promotions (`📣 Рассылки`, migration `0007`)
-15. ✅ GitHub release + one-command install (`install.sh`, `update.sh`, `backup.sh`, QA checklist)
+15. ✅ Promo codes / discounts (`🎁 Промокоды`, migration `0008`)
+16. ✅ GitHub release + one-command install (`install.sh`, `update.sh`, `backup.sh`, QA checklist)

@@ -29,6 +29,12 @@ class FreePlanNotEligibleError(PaymentRequestError):
     pass
 
 
+class PromoCodeError(Exception):
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
 class StatisticsLoadError(Exception):
     def __init__(self, message: str = "Не удалось загрузить статистику.") -> None:
         self.message = message
@@ -70,6 +76,7 @@ __all__ = [
     "PaymentRequestDuplicateError",
     "PaymentRequestError",
     "PaymentRequestNotFoundError",
+    "PromoCodeError",
     "PlanValidationError",
     "StatisticsLoadError",
     "VpnPanelAuthError",

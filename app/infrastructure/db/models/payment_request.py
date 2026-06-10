@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums import PaymentRequestStatus, PaymentRequestType
@@ -35,6 +35,11 @@ class PaymentRequest(Base):
         index=True,
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    promo_code_id: Mapped[int | None] = mapped_column(ForeignKey("promo_codes.id"), nullable=True)
+    original_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
+    final_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    extra_days_from_promo: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     receipt_file_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     receipt_file_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     receipt_message_id: Mapped[int | None] = mapped_column(nullable=True)
@@ -60,3 +65,4 @@ class PaymentRequest(Base):
     user: Mapped["User"] = relationship(back_populates="payment_requests")
     plan: Mapped["Plan"] = relationship(back_populates="payment_requests")
     vpn_account: Mapped["VpnAccount | None"] = relationship(back_populates="payment_requests")
+    promo_code: Mapped["PromoCode | None"] = relationship()
