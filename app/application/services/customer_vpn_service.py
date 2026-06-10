@@ -13,19 +13,9 @@ from app.infrastructure.integrations.marzban.mappers import normalize_marzban_su
 from app.infrastructure.integrations.marzban.service import MarzbanService
 from app.infrastructure.integrations.xui.mappers import normalize_xui_subscription_url
 from app.infrastructure.integrations.xui.service import XuiService
+from app.presentation.i18n import normalize_lang, t
 
 logger = logging.getLogger(__name__)
-
-NO_VPN_TEXT = "У вас пока нет активного VPN. Нажмите «🛒 Купить VPN»."
-TRAFFIC_REFRESH_WARNING = "⚠️ Не удалось обновить трафик, показаны сохранённые данные."
-LINK_FETCH_ERROR = "Не удалось получить ссылку. Свяжитесь с поддержкой."
-
-STATUS_LABELS: dict[str, str] = {
-    VpnAccountStatus.ACTIVE.value: "Активен",
-    VpnAccountStatus.EXPIRED.value: "Истёк",
-    VpnAccountStatus.DISABLED.value: "Отключён",
-    VpnAccountStatus.DELETED.value: "Удалён",
-}
 
 
 class CustomerVpnService:
@@ -49,10 +39,11 @@ class CustomerVpnService:
             return None
         return await self._uow.vpn_accounts.get_primary_for_user(user.id)
 
-    async def list_subscriptions(self, telegram_id: int) -> list[CustomerVpnListItem]:
+    async def list_subscriptions(self, telegram_id: int, *, lang: str | None = None) -> list[CustomerVpnListItem]:
         user = await self._uow.users.get_by_telegram_id(telegram_id)
         if user is None:
             return []
+        code = normalize_lang(lang)
         now = datetime.now(UTC)
         accounts = await self._uow.vpn_accounts.list_by_user_id(user.id, include_deleted=False)
         items: list[CustomerVpnListItem] = []
@@ -63,7 +54,7 @@ class CustomerVpnService:
                     account_id=account.id,
                     title=title,
                     vpn_account_name=account.vpn_account_name,
-                    status_label=self._status_label(account, now),
+                    status_label=self._status_label(account, now, code),
                     expiry_at=account.expiry_date,
                     is_primary=account.is_primary,
                 ),
@@ -86,6 +77,7 @@ class CustomerVpnService:
         telegram_id: int,
         *,
         account_id: int | None = None,
+        lang: str | None = None,
     ) -> CustomerVpnOverview | None:
         if account_id is not None:
             account = await self.get_account_for_user(telegram_id, account_id)
@@ -110,7 +102,8 @@ class CustomerVpnService:
             if plan is not None:
                 plan_name = plan.name
 
-        status_label = self._status_label(account, now)
+        code = normalize_lang(lang)
+        status_label = self._status_label(account, now, code)
         days_left = self._days_left(account.expiry_date, now)
 
         return CustomerVpnOverview(
@@ -121,9 +114,9 @@ class CustomerVpnService:
             plan_name=plan_name,
             expiry_at=account.expiry_date,
             days_left=days_left,
-            traffic_display=self._format_used_traffic(used_bytes),
-            traffic_limit_display=self._format_traffic_limit(account.traffic_limit_gb),
-            ip_limit_display=self._format_ip_limit(account.ip_limit),
+            traffic_display=self._format_used_traffic(used_bytes, code),
+            traffic_limit_display=self._format_traffic_limit(account.traffic_limit_gb, code),
+            ip_limit_display=self._format_ip_limit(account.ip_limit, code),
             panels=self._panel_overviews(account),
             traffic_refresh_failed=refresh_failed,
         )
@@ -180,44 +173,54 @@ class CustomerVpnService:
 
         return links
 
-    def format_overview_message(self, overview: CustomerVpnOverview) -> str:
+    def format_overview_message(self, overview: CustomerVpnOverview, *, lang: str | None = None) -> str:
+        code = normalize_lang(lang)
         expiry = (
             overview.expiry_at.strftime("%d.%m.%Y %H:%M")
             if overview.expiry_at is not None
             else "—"
         )
         days_left = (
-            f"{overview.days_left} дн."
+            t(code, "myvpn.days_unit", n=overview.days_left)
             if overview.days_left is not None
             else "—"
         )
         panels = ", ".join(panel.name for panel in overview.panels if panel.configured) or "—"
-
         title = overview.display_name or overview.vpn_account_name
         lines = [
-            "📊 <b>Мой VPN</b>",
+            t(code, "myvpn.title"),
             "",
-            f"🏷 Подписка: <b>{title}</b>",
-            f"👤 Аккаунт: <code>{overview.vpn_account_name}</code>",
-            f"📌 Статус: {overview.status_label}",
-            f"📦 Тариф: {overview.plan_name or '—'}",
-            f"📅 Действует до: {expiry}",
-            f"⏳ Осталось: {days_left}",
-            f"📶 Трафик: {overview.traffic_display} / {overview.traffic_limit_display}",
-            f"📱 Устройств: {overview.ip_limit_display}",
-            f"🖥 Панели: {panels}",
+            t(code, "myvpn.subscription_label", title=title),
+            t(code, "myvpn.account", name=overview.vpn_account_name),
+            t(code, "myvpn.status", status=overview.status_label),
+            t(code, "myvpn.plan", plan=overview.plan_name or "—"),
+            t(code, "myvpn.expiry", expiry=expiry),
+            t(code, "myvpn.days_left", days=days_left),
+            t(code, "myvpn.traffic_full", used=overview.traffic_display, limit=overview.traffic_limit_display),
+            t(code, "myvpn.devices", count=overview.ip_limit_display),
+            t(code, "myvpn.panels", panels=panels),
         ]
         if overview.traffic_refresh_failed:
             lines.append("")
-            lines.append(TRAFFIC_REFRESH_WARNING)
+            lines.append(t(code, "myvpn.traffic_warning"))
         return "\n".join(lines)
 
-    def format_subscription_list_message(self, items: list[CustomerVpnListItem]) -> str:
-        lines = ["📊 <b>Мои подписки</b>", "", "Выберите подписку:"]
+    def format_subscription_list_message(self, items: list[CustomerVpnListItem], *, lang: str | None = None) -> str:
+        code = normalize_lang(lang)
+        lines = [t(code, "myvpn.list_title"), "", t(code, "myvpn.list_choose")]
         for item in items:
             expiry = item.expiry_at.strftime("%d.%m.%Y") if item.expiry_at else "—"
-            primary = " ⭐" if item.is_primary else ""
-            lines.append(f"• <b>{item.title}</b>{primary} — {item.status_label}, до {expiry}")
+            primary = t(code, "myvpn.primary_mark") if item.is_primary else ""
+            lines.append(
+                t(
+                    code,
+                    "myvpn.subscription_line",
+                    title=item.title,
+                    primary=primary,
+                    status=item.status_label,
+                    expiry=expiry,
+                )
+            )
         return "\n".join(lines)
 
     @staticmethod
@@ -226,12 +229,13 @@ class CustomerVpnService:
             return account.display_name
         return account.vpn_account_name
 
-    def format_links_message(self, links: dict[str, str]) -> str:
+    def format_links_message(self, links: dict[str, str], *, lang: str | None = None) -> str:
+        code = normalize_lang(lang)
         if not links:
-            return LINK_FETCH_ERROR
-        lines = ["🔗 <b>Ваши ссылки для подключения:</b>", ""]
+            return t(code, "myvpn.links_error")
+        lines = [t(code, "myvpn.links_title"), ""]
         for panel, url in links.items():
-            lines.append(f"<b>{panel}</b>:\n{url}")
+            lines.append(t(code, "myvpn.link_line", panel=panel, url=url))
             lines.append("")
         return "\n".join(lines).strip()
 
@@ -296,14 +300,21 @@ class CustomerVpnService:
             )
         return panels
 
-    @staticmethod
-    def _status_label(account: VpnAccount, now: datetime) -> str:
+    def _status_label(self, account: VpnAccount, now: datetime, lang: str) -> str:
         expiry = account.expiry_date
         if expiry is not None and expiry.tzinfo is None:
             expiry = expiry.replace(tzinfo=UTC)
         if expiry is not None and expiry <= now:
-            return "Истёк"
-        return STATUS_LABELS.get(account.status, account.status)
+            return t(lang, "myvpn.status.expired")
+        key = {
+            VpnAccountStatus.ACTIVE.value: "myvpn.status.active",
+            VpnAccountStatus.EXPIRED.value: "myvpn.status.expired",
+            VpnAccountStatus.DISABLED.value: "myvpn.status.disabled",
+            VpnAccountStatus.DELETED.value: "myvpn.status.deleted",
+        }.get(account.status)
+        if key:
+            return t(lang, key)
+        return account.status
 
     @staticmethod
     def _days_left(expiry: datetime | None, now: datetime) -> int | None:
@@ -316,18 +327,22 @@ class CustomerVpnService:
         return max(0, (expiry - now).days)
 
     @staticmethod
-    def _format_used_traffic(used_bytes: int) -> str:
+    def _format_used_traffic(used_bytes: int, lang: str) -> str:
         if used_bytes <= 0:
-            return "0 ГБ"
+            return t(lang, "myvpn.traffic.zero")
         gb = used_bytes / (1024**3)
         if gb < 0.01:
-            return f"{used_bytes / (1024**2):.1f} МБ"
-        return f"{gb:.2f} ГБ"
+            return t(lang, "myvpn.traffic.mb", n=f"{used_bytes / (1024**2):.1f}")
+        return t(lang, "myvpn.traffic.gb", n=f"{gb:.2f}")
 
     @staticmethod
-    def _format_traffic_limit(limit_gb: int) -> str:
-        return "Безлимит" if limit_gb <= 0 else f"{limit_gb} ГБ"
+    def _format_traffic_limit(limit_gb: int, lang: str) -> str:
+        if limit_gb <= 0:
+            return t(lang, "myvpn.unlimited")
+        return t(lang, "myvpn.traffic.gb", n=limit_gb)
 
     @staticmethod
-    def _format_ip_limit(ip_limit: int) -> str:
-        return "Безлимит" if ip_limit <= 0 else str(ip_limit)
+    def _format_ip_limit(ip_limit: int, lang: str) -> str:
+        if ip_limit <= 0:
+            return t(lang, "myvpn.unlimited")
+        return str(ip_limit)

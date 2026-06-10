@@ -17,8 +17,8 @@ ADMIN_PLACEHOLDER_BUTTONS: set[str] = set()
 
 
 @router.message(F.text == "🏠 Главное меню")
-async def handle_back_to_customer_menu(message: Message) -> None:
-    await message.answer("🏠 Главное меню клиента", reply_markup=customer_main_keyboard())
+async def handle_back_to_customer_menu(message: Message, lang: str) -> None:
+    await message.answer("🏠 Главное меню клиента", reply_markup=customer_main_keyboard(lang))
 
 
 @router.message(F.text.in_(ADMIN_PLACEHOLDER_BUTTONS))

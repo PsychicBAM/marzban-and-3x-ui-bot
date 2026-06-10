@@ -11,6 +11,7 @@ from app.config.settings import Settings
 from app.presentation.keyboards.admin import admin_main_keyboard
 from app.presentation.keyboards.admin_settings import settings_home_keyboard
 from app.presentation.keyboards.customer import customer_main_keyboard
+from app.presentation.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ async def handle_global_cancel(
     message: Message,
     state: FSMContext,
     settings: Settings,
+    lang: str,
 ) -> None:
     current_state = await state.get_state()
     user_id = message.from_user.id if message.from_user else None
@@ -60,4 +62,4 @@ async def handle_global_cancel(
             )
         return
 
-    await message.answer("✅ Действие отменено.", reply_markup=customer_main_keyboard())
+    await message.answer(t(lang, "common.cancel_done"), reply_markup=customer_main_keyboard(lang))

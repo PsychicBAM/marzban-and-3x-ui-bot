@@ -47,6 +47,7 @@ class UserRepository:
         is_admin: bool = False,
         referred_by_user_id: int | None = None,
         referral_code: str | None = None,
+        language_code: str = "ru",
     ) -> User:
         user = User(
             telegram_id=telegram_id,
@@ -56,8 +57,15 @@ class UserRepository:
             is_admin=is_admin,
             referred_by_user_id=referred_by_user_id,
             referral_code=referral_code,
+            language_code=language_code,
         )
         self._session.add(user)
+        await self._session.flush()
+        await self._session.refresh(user)
+        return user
+
+    async def set_language(self, user: User, language_code: str) -> User:
+        user.language_code = language_code
         await self._session.flush()
         await self._session.refresh(user)
         return user

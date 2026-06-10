@@ -13,6 +13,7 @@ from app.application.dto.referral import (
     ReferralSettingsInfo,
 )
 from app.application.exceptions import ReferralError
+from app.presentation.i18n import normalize_lang, t
 from app.application.services.admin_customer_service import AdminCustomerService
 from app.application.services.admin_log_service import AdminLogService
 from app.application.utils.referral_code import encode_referral_code
@@ -125,32 +126,35 @@ class ReferralService:
             milestone_progress=min(paid, cfg.milestone_paid_referrals),
         )
 
-    def format_customer_home(self, stats: ReferralCustomerStats) -> str:
-        return (
-            "🎁 Пригласить друга\n\n"
-            f"🔗 Ваша ссылка:\n{stats.referral_link}\n\n"
-            f"👥 Приглашено: {stats.invited_count}\n"
-            f"💳 Оплатили: {stats.paid_referrals_count}\n"
-            f"✅ Начислено дней: {stats.earned_bonus_days}\n"
-            f"⏳ Ожидает: {stats.pending_bonus_days} дн.\n"
-            f"🏆 До цели: {stats.milestone_progress}/{stats.milestone_target}"
+    def format_customer_home(self, stats: ReferralCustomerStats, *, lang: str | None = None) -> str:
+        code = normalize_lang(lang)
+        return t(
+            code,
+            "referral.home",
+            link=stats.referral_link,
+            invited=stats.invited_count,
+            paid=stats.paid_referrals_count,
+            earned=stats.earned_bonus_days,
+            pending=stats.pending_bonus_days,
+            progress=stats.milestone_progress,
+            target=stats.milestone_target,
         )
 
-    def format_link_message(self, stats: ReferralCustomerStats) -> str:
-        return (
-            "🔗 Ваша реферальная ссылка:\n\n"
-            f"{stats.referral_link}\n\n"
-            "Отправьте её другу — бонус начислится после его оплаты."
-        )
+    def format_link_message(self, stats: ReferralCustomerStats, *, lang: str | None = None) -> str:
+        code = normalize_lang(lang)
+        return t(code, "referral.link", link=stats.referral_link)
 
-    def format_stats_message(self, stats: ReferralCustomerStats) -> str:
-        return (
-            "📊 Реферальная статистика\n\n"
-            f"👥 Приглашено: {stats.invited_count}\n"
-            f"💳 Оплатили: {stats.paid_referrals_count}\n"
-            f"✅ Начислено дней: {stats.earned_bonus_days}\n"
-            f"⏳ Ожидает начисления: {stats.pending_bonus_days} дн.\n"
-            f"🏆 Прогресс к цели: {stats.milestone_progress}/{stats.milestone_target}"
+    def format_stats_message(self, stats: ReferralCustomerStats, *, lang: str | None = None) -> str:
+        code = normalize_lang(lang)
+        return t(
+            code,
+            "referral.stats",
+            invited=stats.invited_count,
+            paid=stats.paid_referrals_count,
+            earned=stats.earned_bonus_days,
+            pending=stats.pending_bonus_days,
+            progress=stats.milestone_progress,
+            target=stats.milestone_target,
         )
 
     async def list_customer_rewards(self, user_id: int) -> list[ReferralRewardInfo]:
@@ -175,25 +179,28 @@ class ReferralService:
             )
         return result
 
-    def format_customer_bonuses(self, rewards: list[ReferralRewardInfo]) -> str:
+    def format_customer_bonuses(self, rewards: list[ReferralRewardInfo], *, lang: str | None = None) -> str:
+        code = normalize_lang(lang)
         if not rewards:
-            return "🎁 Мои бонусы\n\nПока нет бонусов."
+            return t(code, "referral.bonuses_empty")
         type_labels = {
-            ReferralRewardType.PER_REFERRAL.value: "за друга",
-            ReferralRewardType.MILESTONE.value: "за цель",
-            ReferralRewardType.MANUAL.value: "вручную",
+            ReferralRewardType.PER_REFERRAL.value: t(code, "referral.bonus_per_friend"),
+            ReferralRewardType.MILESTONE.value: t(code, "referral.bonus_milestone"),
+            ReferralRewardType.MANUAL.value: t(code, "referral.bonus_manual"),
         }
         status_labels = {
-            ReferralRewardStatus.PENDING.value: "⏳ ожидает",
-            ReferralRewardStatus.APPLIED.value: "✅ начислен",
-            ReferralRewardStatus.CANCELED.value: "❌ отменён",
+            ReferralRewardStatus.PENDING.value: t(code, "referral.bonus_pending"),
+            ReferralRewardStatus.APPLIED.value: t(code, "referral.bonus_applied"),
+            ReferralRewardStatus.CANCELED.value: t(code, "referral.bonus_canceled"),
         }
-        lines = ["🎁 Мои бонусы", ""]
+        lines = [t(code, "referral.bonuses_title"), ""]
         for item in rewards[:20]:
             label = type_labels.get(item.reward_type, item.reward_type)
             status = status_labels.get(item.status, item.status)
             who = f" ({item.referred_name})" if item.referred_name else ""
-            lines.append(f"• +{item.reward_days} дн. {label}{who} — {status}")
+            lines.append(
+                t(code, "referral.bonus_line", days=item.reward_days, type=label, who=who, status=status)
+            )
         return "\n".join(lines)
 
     async def process_paid_payment(self, request: PaymentRequest) -> ReferralProcessOutcome:
@@ -270,14 +277,15 @@ class ReferralService:
         if cfg.apply_reward_automatically:
             apply_outcome = await self._apply_pending_rewards(referrer, cfg)
             notifications.extend(apply_outcome.notifications)
+            ref_lang = normalize_lang(referrer.language_code)
             if apply_outcome.applied_count == 0 and apply_outcome.pending_count > 0:
                 notifications.append(
                     ReferralNotification(
                         telegram_id=referrer.telegram_id,
-                        message=(
-                            f"🎁 Ваш друг оплатил VPN. "
-                            f"Вам начислено +{cfg.reward_days_per_paid_referral} дней! "
-                            "Активируйте VPN, чтобы применить бонус."
+                        message=t(
+                            ref_lang,
+                            "referral.notify_pending",
+                            days=cfg.reward_days_per_paid_referral,
                         ),
                     )
                 )
@@ -287,13 +295,14 @@ class ReferralService:
                 action=AdminActionType.REFERRAL_REWARD_PENDING,
                 details={"referrer_user_id": referrer.id, "reward_id": per_reward.id},
             )
+            ref_lang = normalize_lang(referrer.language_code)
             notifications.append(
                 ReferralNotification(
                     telegram_id=referrer.telegram_id,
-                    message=(
-                        f"🎁 Ваш друг оплатил VPN. "
-                        f"Вам начислено +{cfg.reward_days_per_paid_referral} дней! "
-                        "Активируйте VPN, чтобы применить бонус."
+                    message=t(
+                        ref_lang,
+                        "referral.notify_pending",
+                        days=cfg.reward_days_per_paid_referral,
                     ),
                 )
             )
@@ -307,12 +316,13 @@ class ReferralService:
             raise ReferralError("Пользователь не найден.")
         cfg = await self._uow.referrals.get_settings()
         outcome = await self._apply_pending_rewards(user, cfg)
+        lang = normalize_lang(user.language_code)
         if outcome.applied_count == 0 and outcome.pending_count > 0:
-            message = "⏳ Бонусы ожидают. Нужен активный VPN для начисления."
+            message = t(lang, "referral.apply_pending")
         elif outcome.applied_count > 0:
-            message = f"✅ Начислено бонусов: {outcome.applied_count}."
+            message = t(lang, "referral.apply_done", count=outcome.applied_count)
         else:
-            message = "Нет бонусов для начисления."
+            message = t(lang, "referral.apply_none")
         return ReferralApplyOutcome(
             applied_count=outcome.applied_count,
             pending_count=outcome.pending_count,
@@ -513,19 +523,20 @@ class ReferralService:
 
         applied = 0
         admin_id = self._resolve_admin_id()
+        ref_lang = normalize_lang(referrer.language_code)
         for reward in pending:
             await self._extend_account(referrer, account, reward, admin_telegram_id=admin_id)
             applied += 1
             notifications.append(
                 ReferralNotification(
                     telegram_id=referrer.telegram_id,
-                    message=self._reward_notification(reward),
+                    message=self._reward_notification(reward, ref_lang),
                 )
             )
             if reward.reward_type == ReferralRewardType.MILESTONE.value:
                 notifications[-1] = ReferralNotification(
                     telegram_id=referrer.telegram_id,
-                    message=f"🎉 Цель достигнута! Вам начислено +{reward.reward_days} дней!",
+                    message=t(ref_lang, "referral.notify_milestone", days=reward.reward_days),
                 )
 
         remaining = await self._uow.referrals.list_pending_rewards(referrer.id)
@@ -574,10 +585,10 @@ class ReferralService:
                 return account
         return max(active, key=lambda item: item.created_at or datetime.min.replace(tzinfo=UTC))
 
-    def _reward_notification(self, reward: ReferralReward) -> str:
+    def _reward_notification(self, reward: ReferralReward, lang: str) -> str:
         if reward.reward_type == ReferralRewardType.MILESTONE.value:
-            return f"🎉 Цель достигнута! Вам начислено +{reward.reward_days} дней!"
-        return f"🎁 Ваш друг оплатил VPN. Вам начислено +{reward.reward_days} дней!"
+            return t(lang, "referral.notify_milestone", days=reward.reward_days)
+        return t(lang, "referral.notify_friend_paid", days=reward.reward_days)
 
     async def _log_settings_update(self, admin_telegram_id: int, field: str, value: object) -> None:
         await self._admin_log.log(

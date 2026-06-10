@@ -2,15 +2,28 @@ from __future__ import annotations
 
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
+from app.presentation.i18n import normalize_lang, t
 
-def customer_main_keyboard() -> ReplyKeyboardMarkup:
+
+def customer_main_keyboard(lang: str | None = None) -> ReplyKeyboardMarkup:
+    code = normalize_lang(lang)
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🛒 Купить VPN")],
-            [KeyboardButton(text="🔄 Продлить VPN"), KeyboardButton(text="📊 Мой VPN")],
-            [KeyboardButton(text="ℹ️ Инструкция"), KeyboardButton(text="🆘 Поддержка")],
-            [KeyboardButton(text="🎁 Пригласить друга"), KeyboardButton(text="🔔 Акции и новости")],
+            [KeyboardButton(text=t(code, "menu.buy_vpn"))],
+            [
+                KeyboardButton(text=t(code, "menu.renew_vpn")),
+                KeyboardButton(text=t(code, "menu.my_vpn")),
+            ],
+            [
+                KeyboardButton(text=t(code, "menu.instruction")),
+                KeyboardButton(text=t(code, "menu.support")),
+            ],
+            [
+                KeyboardButton(text=t(code, "menu.invite_friend")),
+                KeyboardButton(text=t(code, "menu.promo_news")),
+            ],
+            [KeyboardButton(text=t(code, "menu.language"))],
         ],
         resize_keyboard=True,
-        input_field_placeholder="Выберите действие",
+        input_field_placeholder=t(code, "menu.placeholder"),
     )

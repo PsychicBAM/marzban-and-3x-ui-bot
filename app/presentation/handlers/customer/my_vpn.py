@@ -3,9 +3,11 @@ from __future__ import annotations
 from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery, Message
 
-from app.application.services.customer_vpn_service import CustomerVpnService, NO_VPN_TEXT
+from app.application.services.customer_vpn_service import CustomerVpnService
 from app.application.services.plan_service import PlanService
 from app.application.services.provisioning_notification_service import ProvisioningNotificationService
+from app.presentation.filters.customer_menu import menu_text_filter
+from app.presentation.i18n import t
 from app.presentation.keyboards.customer import customer_main_keyboard
 from app.presentation.keyboards.my_vpn import (
     MYVPN_HOME,
@@ -22,29 +24,30 @@ from app.presentation.services.customer_vpn_delivery import send_qr_codes_for_li
 router = Router(name="customer_my_vpn")
 
 
-@router.message(F.text == "📊 Мой VPN")
-async def handle_my_vpn(message: Message, customer_vpn_service: CustomerVpnService) -> None:
+@router.message(menu_text_filter("menu.my_vpn"))
+async def handle_my_vpn(message: Message, customer_vpn_service: CustomerVpnService, lang: str) -> None:
     if message.from_user is None:
         return
 
-    items = await customer_vpn_service.list_subscriptions(message.from_user.id)
+    items = await customer_vpn_service.list_subscriptions(message.from_user.id, lang=lang)
     if not items:
-        await message.answer(NO_VPN_TEXT, reply_markup=customer_main_keyboard())
+        await message.answer(t(lang, "myvpn.no_vpn"), reply_markup=customer_main_keyboard(lang))
         return
 
     if len(items) == 1:
         overview = await customer_vpn_service.build_overview(
             message.from_user.id,
             account_id=items[0].account_id,
+            lang=lang,
         )
         if overview is None:
-            await message.answer(NO_VPN_TEXT, reply_markup=customer_main_keyboard())
+            await message.answer(t(lang, "myvpn.no_vpn"), reply_markup=customer_main_keyboard(lang))
             return
-        text = customer_vpn_service.format_overview_message(overview)
+        text = customer_vpn_service.format_overview_message(overview, lang=lang)
         await message.answer(text, reply_markup=my_vpn_keyboard(overview.account_id))
         return
 
-    text = customer_vpn_service.format_subscription_list_message(items)
+    text = customer_vpn_service.format_subscription_list_message(items, lang=lang)
     await message.answer(text, reply_markup=my_vpn_list_keyboard(items))
 
 
@@ -52,6 +55,7 @@ async def handle_my_vpn(message: Message, customer_vpn_service: CustomerVpnServi
 async def handle_my_vpn_select(
     callback: CallbackQuery,
     customer_vpn_service: CustomerVpnService,
+    lang: str,
 ) -> None:
     if callback.from_user is None or callback.data is None or callback.message is None:
         await callback.answer()
@@ -59,18 +63,19 @@ async def handle_my_vpn_select(
 
     account_id = _parse_account_id(callback.data, MYVPN_SELECT_PREFIX)
     if account_id is None:
-        await callback.answer("Некорректный запрос.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_request"), show_alert=True)
         return
 
     overview = await customer_vpn_service.build_overview(
         callback.from_user.id,
         account_id=account_id,
+        lang=lang,
     )
     if overview is None:
-        await callback.answer("VPN не найден.", show_alert=True)
+        await callback.answer(t(lang, "common.vpn_not_found"), show_alert=True)
         return
 
-    text = customer_vpn_service.format_overview_message(overview)
+    text = customer_vpn_service.format_overview_message(overview, lang=lang)
     await callback.message.answer(text, reply_markup=my_vpn_keyboard(overview.account_id))
     await callback.answer()
 
@@ -79,6 +84,7 @@ async def handle_my_vpn_select(
 async def handle_my_vpn_links(
     callback: CallbackQuery,
     customer_vpn_service: CustomerVpnService,
+    lang: str,
 ) -> None:
     if callback.from_user is None or callback.data is None:
         await callback.answer()
@@ -86,12 +92,12 @@ async def handle_my_vpn_links(
 
     account_id = _parse_account_id(callback.data, MYVPN_LINKS_PREFIX)
     if account_id is None:
-        await callback.answer("Некорректный запрос.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_request"), show_alert=True)
         return
 
     account = await customer_vpn_service.get_account_for_user(callback.from_user.id, account_id)
     if account is None:
-        await callback.answer("VPN не найден.", show_alert=True)
+        await callback.answer(t(lang, "common.vpn_not_found"), show_alert=True)
         return
 
     if callback.message is None:
@@ -99,7 +105,7 @@ async def handle_my_vpn_links(
         return
 
     links = await customer_vpn_service.resolve_subscription_links(account)
-    text = customer_vpn_service.format_links_message(links)
+    text = customer_vpn_service.format_links_message(links, lang=lang)
     await callback.message.answer(text)
     await callback.answer()
 
@@ -110,6 +116,7 @@ async def handle_my_vpn_qr(
     bot: Bot,
     customer_vpn_service: CustomerVpnService,
     provisioning_notification_service: ProvisioningNotificationService,
+    lang: str,
 ) -> None:
     if callback.from_user is None or callback.data is None:
         await callback.answer()
@@ -117,12 +124,12 @@ async def handle_my_vpn_qr(
 
     account_id = _parse_account_id(callback.data, MYVPN_QR_PREFIX)
     if account_id is None:
-        await callback.answer("Некорректный запрос.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_request"), show_alert=True)
         return
 
     account = await customer_vpn_service.get_account_for_user(callback.from_user.id, account_id)
     if account is None:
-        await callback.answer("VPN не найден.", show_alert=True)
+        await callback.answer(t(lang, "common.vpn_not_found"), show_alert=True)
         return
 
     if callback.message is None:
@@ -131,7 +138,7 @@ async def handle_my_vpn_qr(
 
     links = await customer_vpn_service.resolve_subscription_links(account)
     if not links:
-        await callback.message.answer("Не удалось получить ссылку. Свяжитесь с поддержкой.")
+        await callback.message.answer(t(lang, "myvpn.links_error"))
         await callback.answer()
         return
 
@@ -149,6 +156,7 @@ async def handle_my_vpn_renew(
     callback: CallbackQuery,
     plan_service: PlanService,
     customer_vpn_service: CustomerVpnService,
+    lang: str,
 ) -> None:
     if callback.data is None:
         await callback.answer()
@@ -156,7 +164,7 @@ async def handle_my_vpn_renew(
 
     account_id = _parse_account_id(callback.data, MYVPN_RENEW_PREFIX)
     if account_id is None:
-        await callback.answer("Некорректный запрос.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_request"), show_alert=True)
         return
 
     await start_renewal_flow(
@@ -164,15 +172,16 @@ async def handle_my_vpn_renew(
         vpn_account_id=account_id,
         plan_service=plan_service,
         customer_vpn_service=customer_vpn_service,
+        lang=lang,
     )
 
 
 @router.callback_query(F.data == MYVPN_HOME)
-async def handle_my_vpn_home(callback: CallbackQuery) -> None:
+async def handle_my_vpn_home(callback: CallbackQuery, lang: str) -> None:
     if callback.message is None:
         await callback.answer()
         return
-    await callback.message.answer("🏠 Главное меню", reply_markup=customer_main_keyboard())
+    await callback.message.answer(t(lang, "common.main_menu_short"), reply_markup=customer_main_keyboard(lang))
     await callback.answer()
 
 

@@ -14,6 +14,7 @@ from app.config.settings import Settings
 from app.domain.enums import AdminActionType, NotificationType, VpnAccountStatus
 from app.infrastructure.db.models.vpn_account import VpnAccount
 from app.infrastructure.db.uow import UnitOfWork
+from app.presentation.i18n import normalize_lang
 from app.presentation.keyboards.customer import customer_main_keyboard
 
 logger = logging.getLogger(__name__)
@@ -140,7 +141,7 @@ class ExpiryNotificationService:
                 expiry_at=expiry,
                 test_mode=False,
             )
-            ok = await self._send_telegram(bot, user.telegram_id, message)
+            ok = await self._send_telegram(bot, user.telegram_id, message, lang=user.language_code)
             if not ok:
                 failed += 1
                 continue
@@ -172,7 +173,7 @@ class ExpiryNotificationService:
                 skipped += 1
             else:
                 message = self._format_expired_message(plan_name=plan_name, expiry_at=expiry)
-                ok = await self._send_telegram(bot, user.telegram_id, message)
+                ok = await self._send_telegram(bot, user.telegram_id, message, lang=user.language_code)
                 if ok:
                     await self._uow.notifications.create(
                         user_id=user.id,
@@ -205,9 +206,13 @@ class ExpiryNotificationService:
         plan = await self._uow.plans.get_by_id(plan_id)
         return plan.name if plan else None
 
-    async def _send_telegram(self, bot: Bot, telegram_id: int, message: str) -> bool:
+    async def _send_telegram(self, bot: Bot, telegram_id: int, message: str, *, lang: str | None = None) -> bool:
         try:
-            await bot.send_message(telegram_id, message, reply_markup=customer_main_keyboard())
+            await bot.send_message(
+                telegram_id,
+                message,
+                reply_markup=customer_main_keyboard(normalize_lang(lang)),
+            )
             return True
         except Exception as exc:
             logger.warning(

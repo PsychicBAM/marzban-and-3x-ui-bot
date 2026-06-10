@@ -27,6 +27,8 @@ from app.presentation.services.customer_provisioning_delivery import deliver_pro
 from app.presentation.services.referral_notifications import send_referral_notifications
 from app.presentation.services.payment_request_admin_notification import notify_admins_new_payment_request
 from app.domain.enums import ReceiptFileType
+from app.presentation.filters.customer_menu import menu_text_filter
+from app.presentation.i18n import t
 from app.presentation.keyboards.customer import customer_main_keyboard
 from app.presentation.keyboards.purchase import (
     PURCHASE_CANCEL,
@@ -47,38 +49,17 @@ from app.presentation.states.purchase import PurchaseReceiptStates, PurchaseSubs
 
 router = Router(name="customer_purchase")
 
-NO_PLANS_TEXT = "😔 Сейчас нет доступных тарифов. Попробуйте позже или обратитесь в поддержку."
-INVALID_RECEIPT_TEXT = (
-    "Пожалуйста, отправьте <b>фото</b> или <b>документ</b> с чеком об оплате.\n"
-    "Если не можете прикрепить файл — отправьте текстовый комментарий."
-)
-RECEIPT_PROMPT = (
-    "📎 Отправьте <b>скриншот или фото чека</b> об оплате.\n"
-    "Можно также отправить документ или текстовый комментарий.\n\n"
-    "<i>Для отмены отправьте /cancel</i>"
-)
-SUCCESS_TEXT = "✅ Заявка отправлена администратору. После проверки оплаты бот выдаст VPN."
-SUBSCRIPTION_CHOICE_TEXT = (
-    "У вас уже есть активный VPN. Что вы хотите сделать?"
-)
-LABEL_PROMPT = (
-    "✏️ Введите название для новой подписки <b>латиницей</b>.\n\n"
-    "Примеры: <code>grandma</code> (для бабушки), <code>phone</code>, <code>work</code>\n"
-    "Допустимы буквы a-z, цифры, _ и -\n\n"
-    "<i>Для отмены отправьте /cancel</i>"
-)
 
-
-@router.message(F.text == "🛒 Купить VPN")
-async def handle_buy_vpn(message: Message, state: FSMContext, plan_service: PlanService) -> None:
+@router.message(menu_text_filter("menu.buy_vpn"))
+async def handle_buy_vpn(message: Message, state: FSMContext, plan_service: PlanService, lang: str) -> None:
     await state.clear()
     plans = await plan_service.list_active_plans()
     if not plans:
-        await message.answer(NO_PLANS_TEXT, reply_markup=customer_main_keyboard())
+        await message.answer(t(lang, "purchase.no_plans"), reply_markup=customer_main_keyboard(lang))
         return
 
     await message.answer(
-        "🛒 <b>Выберите тариф:</b>",
+        t(lang, "purchase.choose_plan"),
         reply_markup=plan_selection_keyboard(plans),
     )
 
@@ -90,6 +71,7 @@ async def handle_plan_selected(
     plan_service: PlanService,
     payment_request_service: PaymentRequestService,
     subscription_purchase_service: SubscriptionPurchaseService,
+    lang: str,
 ) -> None:
     await state.clear()
     if callback.data is None or callback.message is None or callback.from_user is None:
@@ -100,12 +82,12 @@ async def handle_plan_selected(
     try:
         plan_id = int(plan_id_str)
     except ValueError:
-        await callback.answer("Некорректный тариф.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_plan"), show_alert=True)
         return
 
     plan = await plan_service.get_active_plan(plan_id)
     if plan is None:
-        await callback.answer("Тариф недоступен.", show_alert=True)
+        await callback.answer(t(lang, "common.plan_unavailable"), show_alert=True)
         return
 
     if plan_service.is_free(plan):
@@ -119,13 +101,13 @@ async def handle_plan_selected(
 
     if await subscription_purchase_service.user_has_active_vpn(callback.from_user.id):
         await callback.message.edit_text(
-            SUBSCRIPTION_CHOICE_TEXT,
+            t(lang, "purchase.subscription_choice"),
             reply_markup=purchase_choice_keyboard(plan.id),
         )
         await callback.answer()
         return
 
-    await _show_standard_checkout(callback.message, state, plan=plan)
+    await _show_standard_checkout(callback.message, state, plan=plan, lang=lang)
     await callback.answer()
 
 
@@ -138,6 +120,7 @@ async def handle_purchase_choice_renew(
     subscription_purchase_service: SubscriptionPurchaseService,
     customer_vpn_service: CustomerVpnService,
     admin_log_service: AdminLogService,
+    lang: str,
 ) -> None:
     await state.clear()
     if callback.data is None or callback.message is None or callback.from_user is None:
@@ -146,17 +129,17 @@ async def handle_purchase_choice_renew(
 
     plan_id = _parse_plan_id(callback.data, PURCHASE_CHOICE_RENEW_PREFIX)
     if plan_id is None:
-        await callback.answer("Некорректный тариф.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_plan"), show_alert=True)
         return
 
     plan = await plan_service.get_active_plan(plan_id)
     if plan is None:
-        await callback.answer("Тариф недоступен.", show_alert=True)
+        await callback.answer(t(lang, "common.plan_unavailable"), show_alert=True)
         return
 
     accounts = await subscription_purchase_service.list_active_accounts(callback.from_user.id)
     if not accounts:
-        await callback.answer("Активный VPN не найден.", show_alert=True)
+        await callback.answer(t(lang, "common.no_active_vpn"), show_alert=True)
         return
 
     await admin_log_service.log(
@@ -171,12 +154,13 @@ async def handle_purchase_choice_renew(
             state,
             plan=plan,
             vpn_account_id=accounts[0].id,
+            lang=lang,
         )
         await callback.answer()
         return
 
     await callback.message.edit_text(
-        "🔄 <b>Какую подписку продлить?</b>",
+        t(lang, "purchase.renew_which"),
         reply_markup=purchase_renew_account_keyboard(plan.id, accounts),
     )
     await callback.answer()
@@ -189,6 +173,7 @@ async def handle_purchase_renew_account(
     plan_service: PlanService,
     payment_request_service: PaymentRequestService,
     customer_vpn_service: CustomerVpnService,
+    lang: str,
 ) -> None:
     if callback.data is None or callback.message is None or callback.from_user is None:
         await callback.answer()
@@ -196,13 +181,13 @@ async def handle_purchase_renew_account(
 
     parsed = _parse_plan_and_account(callback.data, PURCHASE_RENEW_ACCOUNT_PREFIX)
     if parsed is None:
-        await callback.answer("Некорректный запрос.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_request"), show_alert=True)
         return
     plan_id, account_id = parsed
 
     plan = await plan_service.get_active_plan(plan_id)
     if plan is None:
-        await callback.answer("Тариф недоступен.", show_alert=True)
+        await callback.answer(t(lang, "common.plan_unavailable"), show_alert=True)
         return
 
     await _show_renewal_checkout(
@@ -210,6 +195,7 @@ async def handle_purchase_renew_account(
         state,
         plan=plan,
         vpn_account_id=account_id,
+        lang=lang,
     )
     await callback.answer()
 
@@ -220,6 +206,7 @@ async def handle_purchase_choice_separate(
     state: FSMContext,
     plan_service: PlanService,
     admin_log_service: AdminLogService,
+    lang: str,
 ) -> None:
     if callback.data is None or callback.from_user is None or callback.message is None:
         await callback.answer()
@@ -227,12 +214,12 @@ async def handle_purchase_choice_separate(
 
     plan_id = _parse_plan_id(callback.data, PURCHASE_CHOICE_SEPARATE_PREFIX)
     if plan_id is None:
-        await callback.answer("Некорректный тариф.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_plan"), show_alert=True)
         return
 
     plan = await plan_service.get_active_plan(plan_id)
     if plan is None:
-        await callback.answer("Тариф недоступен.", show_alert=True)
+        await callback.answer(t(lang, "common.plan_unavailable"), show_alert=True)
         return
 
     await admin_log_service.log(
@@ -242,7 +229,7 @@ async def handle_purchase_choice_separate(
     )
     await state.update_data(plan_id=plan_id)
     await state.set_state(PurchaseSubscriptionStates.waiting_label)
-    await callback.message.answer(LABEL_PROMPT)
+    await callback.message.answer(t(lang, "purchase.separate_name"))
     await callback.answer()
 
 
@@ -254,6 +241,7 @@ async def handle_subscription_label(
     payment_request_service: PaymentRequestService,
     subscription_purchase_service: SubscriptionPurchaseService,
     admin_log_service: AdminLogService,
+    lang: str,
 ) -> None:
     if message.from_user is None or message.text is None:
         return
@@ -262,13 +250,13 @@ async def handle_subscription_label(
     plan_id = data.get("plan_id")
     if not isinstance(plan_id, int):
         await state.clear()
-        await message.answer("Сессия истекла. Начните покупку заново.", reply_markup=customer_main_keyboard())
+        await message.answer(t(lang, "common.session_expired_purchase"), reply_markup=customer_main_keyboard(lang))
         return
 
     plan = await plan_service.get_active_plan(plan_id)
     if plan is None:
         await state.clear()
-        await message.answer("Тариф недоступен.", reply_markup=customer_main_keyboard())
+        await message.answer(t(lang, "common.plan_unavailable"), reply_markup=customer_main_keyboard(lang))
         return
 
     try:
@@ -301,17 +289,18 @@ async def handle_subscription_label(
         target_vpn_account_name=vpn_account_name,
         target_display_name=display_name,
         edit=False,
+        lang=lang,
     )
 
 
 @router.callback_query(F.data == PURCHASE_CANCEL)
-async def handle_purchase_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+async def handle_purchase_cancel(callback: CallbackQuery, state: FSMContext, lang: str) -> None:
     await state.clear()
     if callback.message is None:
         await callback.answer()
         return
-    await callback.message.edit_text("❌ Покупка отменена.")
-    await callback.message.answer("Выберите действие в меню.", reply_markup=customer_main_keyboard())
+    await callback.message.edit_text(t(lang, "purchase.cancel"))
+    await callback.message.answer(t(lang, "common.main_menu"), reply_markup=customer_main_keyboard(lang))
     await callback.answer()
 
 
@@ -325,6 +314,7 @@ async def handle_free_plan_activate(
     provisioning_notification_service: ProvisioningNotificationService,
     admin_log_service: AdminLogService,
     settings: Settings,
+    lang: str,
 ) -> None:
     await state.clear()
     if callback.data is None or callback.from_user is None or callback.message is None:
@@ -335,12 +325,12 @@ async def handle_free_plan_activate(
     try:
         plan_id = int(plan_id_str)
     except ValueError:
-        await callback.answer("Некорректный тариф.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_plan"), show_alert=True)
         return
 
     plan = await plan_service.get_active_plan(plan_id)
     if plan is None or not plan_service.is_free(plan):
-        await callback.answer("Тариф недоступен.", show_alert=True)
+        await callback.answer(t(lang, "common.plan_unavailable"), show_alert=True)
         return
 
     try:
@@ -371,13 +361,13 @@ async def handle_free_plan_activate(
             admin_telegram_id=log_admin_id,
             payment_request_id=outcome.request_id,
         )
-        await callback.message.answer("Выберите действие в меню.", reply_markup=customer_main_keyboard())
-        await callback.answer("Готово.")
+        await callback.message.answer(t(lang, "common.main_menu"), reply_markup=customer_main_keyboard(lang))
+        await callback.answer(t(lang, "common.done"))
         return
 
     await callback.message.answer(
         outcome.customer_message,
-        reply_markup=customer_main_keyboard(),
+        reply_markup=customer_main_keyboard(lang),
     )
     await callback.answer(outcome.customer_message, show_alert=True)
 
@@ -391,6 +381,7 @@ async def handle_purchase_paid(
     payment_request_service: PaymentRequestService,
     promo_activation_service: PromoActivationService,
     provisioning_notification_service: ProvisioningNotificationService,
+    lang: str,
 ) -> None:
     await _start_receipt_flow(
         callback,
@@ -400,6 +391,7 @@ async def handle_purchase_paid(
         payment_request_service=payment_request_service,
         promo_activation_service=promo_activation_service,
         provisioning_notification_service=provisioning_notification_service,
+        lang=lang,
         prefix=PURCHASE_PAID_PREFIX,
         purchase_mode="purchase",
     )
@@ -414,6 +406,7 @@ async def handle_separate_purchase_paid(
     payment_request_service: PaymentRequestService,
     promo_activation_service: PromoActivationService,
     provisioning_notification_service: ProvisioningNotificationService,
+    lang: str,
 ) -> None:
     await _start_receipt_flow(
         callback,
@@ -423,6 +416,7 @@ async def handle_separate_purchase_paid(
         payment_request_service=payment_request_service,
         promo_activation_service=promo_activation_service,
         provisioning_notification_service=provisioning_notification_service,
+        lang=lang,
         prefix=PURCHASE_SEPARATE_PAID_PREFIX,
         purchase_mode="separate",
     )
@@ -436,6 +430,7 @@ async def handle_receipt_photo(
     payment_request_service: PaymentRequestService,
     settings: Settings,
     admin_log_service: AdminLogService,
+    lang: str,
 ) -> None:
     if message.from_user is None or not message.photo:
         return
@@ -451,6 +446,7 @@ async def handle_receipt_photo(
         receipt_file_type=ReceiptFileType.PHOTO.value,
         user_comment=None,
         receipt_message_id=message.message_id,
+        lang=lang,
     )
 
 
@@ -462,6 +458,7 @@ async def handle_receipt_document(
     payment_request_service: PaymentRequestService,
     settings: Settings,
     admin_log_service: AdminLogService,
+    lang: str,
 ) -> None:
     if message.from_user is None or message.document is None:
         return
@@ -476,6 +473,7 @@ async def handle_receipt_document(
         receipt_file_type=ReceiptFileType.DOCUMENT.value,
         user_comment=message.caption,
         receipt_message_id=message.message_id,
+        lang=lang,
     )
 
 
@@ -487,12 +485,13 @@ async def handle_receipt_text(
     payment_request_service: PaymentRequestService,
     settings: Settings,
     admin_log_service: AdminLogService,
+    lang: str,
 ) -> None:
     if message.from_user is None:
         return
     text = (message.text or "").strip()
     if not text:
-        await message.answer(INVALID_RECEIPT_TEXT)
+        await message.answer(t(lang, "purchase.invalid_receipt"))
         return
 
     await _submit_receipt(
@@ -506,12 +505,13 @@ async def handle_receipt_text(
         receipt_file_type=ReceiptFileType.TEXT.value,
         user_comment=text,
         receipt_message_id=message.message_id,
+        lang=lang,
     )
 
 
 @router.message(StateFilter(PurchaseReceiptStates.waiting_receipt))
-async def handle_receipt_invalid(message: Message) -> None:
-    await message.answer(INVALID_RECEIPT_TEXT)
+async def handle_receipt_invalid(message: Message, lang: str) -> None:
+    await message.answer(t(lang, "purchase.invalid_receipt"))
 
 
 async def _show_standard_checkout(
@@ -519,6 +519,7 @@ async def _show_standard_checkout(
     state: FSMContext,
     *,
     plan,
+    lang: str,
 ) -> None:
     await show_promo_prompt(
         message,
@@ -526,6 +527,7 @@ async def _show_standard_checkout(
         flow="purchase",
         plan_id=plan.id,
         request_type=PaymentRequestType.PURCHASE.value,
+        lang=lang,
     )
 
 
@@ -535,6 +537,7 @@ async def _show_renewal_checkout(
     *,
     plan,
     vpn_account_id: int,
+    lang: str,
 ) -> None:
     await show_promo_prompt(
         message,
@@ -543,6 +546,7 @@ async def _show_renewal_checkout(
         plan_id=plan.id,
         request_type=PaymentRequestType.RENEWAL.value,
         vpn_account_id=vpn_account_id,
+        lang=lang,
     )
 
 
@@ -555,6 +559,7 @@ async def _start_receipt_flow(
     payment_request_service: PaymentRequestService,
     promo_activation_service: PromoActivationService,
     provisioning_notification_service: ProvisioningNotificationService,
+    lang: str,
     prefix: str,
     purchase_mode: str,
 ) -> None:
@@ -564,25 +569,19 @@ async def _start_receipt_flow(
 
     plan_id = _parse_plan_id(callback.data, prefix)
     if plan_id is None:
-        await callback.answer("Некорректный тариф.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_plan"), show_alert=True)
         return
 
     plan = await plan_service.get_active_plan(plan_id)
     if plan is None:
-        await callback.answer("Тариф недоступен.", show_alert=True)
+        await callback.answer(t(lang, "common.plan_unavailable"), show_alert=True)
         return
     if plan_service.is_free(plan):
-        await callback.answer(
-            "Для бесплатного тарифа нажмите «🎁 Активировать бесплатно».",
-            show_alert=True,
-        )
+        await callback.answer(t(lang, "common.free_use_button"), show_alert=True)
         return
 
     if await payment_request_service.has_pending_purchase(callback.from_user.id):
-        await callback.answer(
-            "⏳ У вас уже есть заявка на проверке. Дождитесь ответа администратора.",
-            show_alert=True,
-        )
+        await callback.answer(t(lang, "common.pending_purchase"), show_alert=True)
         return
 
     data = await state.get_data()
@@ -617,15 +616,15 @@ async def _start_receipt_flow(
         if outcome.referral_notifications:
             await send_referral_notifications(bot, outcome.referral_notifications)
         if callback.message is not None:
-            await callback.message.answer(outcome.customer_message, reply_markup=customer_main_keyboard())
-        await callback.answer("✅ VPN активирован по промокоду.")
+            await callback.message.answer(outcome.customer_message, reply_markup=customer_main_keyboard(lang))
+        await callback.answer(t(lang, "purchase.promo_activated"))
         return
 
     if purchase_mode == "separate":
         target_name = data.get("target_vpn_account_name")
         target_display = data.get("target_display_name")
         if not isinstance(target_name, str) or not isinstance(target_display, str):
-            await callback.answer("Сначала введите название подписки.", show_alert=True)
+            await callback.answer(t(lang, "common.enter_subscription_name"), show_alert=True)
             return
         await state.update_data(
             plan_id=plan_id,
@@ -637,7 +636,7 @@ async def _start_receipt_flow(
         await state.update_data(plan_id=plan_id, purchase_mode="purchase", **{k: v for k, v in pricing.items() if v is not None})
 
     await state.set_state(PurchaseReceiptStates.waiting_receipt)
-    await callback.message.answer(RECEIPT_PROMPT)
+    await callback.message.answer(t(lang, "purchase.receipt_prompt"))
     await callback.answer()
 
 
@@ -653,6 +652,7 @@ async def _submit_receipt(
     receipt_file_type: str,
     user_comment: str | None,
     receipt_message_id: int | None,
+    lang: str,
 ) -> None:
     if message.from_user is None:
         return
@@ -661,7 +661,7 @@ async def _submit_receipt(
     plan_id = data.get("plan_id")
     if not isinstance(plan_id, int):
         await state.clear()
-        await message.answer("Сессия истекла. Начните покупку заново.", reply_markup=customer_main_keyboard())
+        await message.answer(t(lang, "common.session_expired_purchase"), reply_markup=customer_main_keyboard(lang))
         return
 
     purchase_mode = data.get("purchase_mode", "purchase")
@@ -671,7 +671,7 @@ async def _submit_receipt(
             target_name = data.get("target_vpn_account_name")
             target_display = data.get("target_display_name")
             if not isinstance(target_name, str) or not isinstance(target_display, str):
-                raise PaymentRequestNotFoundError("Данные подписки не найдены. Начните заново.")
+                raise PaymentRequestNotFoundError(t(lang, "purchase.subscription_data_missing"))
             request = await payment_request_service.create_purchase_request(
                 telegram_id=message.from_user.id,
                 plan_id=plan_id,
@@ -703,15 +703,15 @@ async def _submit_receipt(
             )
     except PaymentRequestDuplicateError as exc:
         await state.clear()
-        await message.answer(exc.message, reply_markup=customer_main_keyboard())
+        await message.answer(exc.message, reply_markup=customer_main_keyboard(lang))
         return
     except PaymentRequestNotFoundError as exc:
         await state.clear()
-        await message.answer(exc.message, reply_markup=customer_main_keyboard())
+        await message.answer(exc.message, reply_markup=customer_main_keyboard(lang))
         return
 
     await state.clear()
-    await message.answer(SUCCESS_TEXT, reply_markup=customer_main_keyboard())
+    await message.answer(t(lang, "purchase.success"), reply_markup=customer_main_keyboard(lang))
     await notify_admins_new_payment_request(
         bot,
         settings=settings,

@@ -16,6 +16,7 @@ from app.presentation.handlers.admin.tariff_actions import router as admin_tarif
 from app.presentation.handlers.admin.tariff_create import router as admin_tariff_create_router
 from app.presentation.handlers.admin.tariff_edit import router as admin_tariff_edit_router
 from app.presentation.handlers.admin.tariffs import router as admin_tariffs_router
+from app.presentation.handlers.customer.language import router as customer_language_router
 from app.presentation.handlers.customer.menu import router as customer_menu_router
 from app.presentation.handlers.customer.promo_checkout import router as customer_promo_checkout_router
 from app.presentation.handlers.customer.referral import router as customer_referral_router
@@ -34,6 +35,7 @@ def build_root_router() -> Router:
     root.include_router(customer_purchase_router)
     root.include_router(customer_renewal_router)
     root.include_router(customer_my_vpn_router)
+    root.include_router(customer_language_router)
     root.include_router(customer_menu_router)
     root.include_router(customer_promo_settings_router)
     root.include_router(admin_requests_router)

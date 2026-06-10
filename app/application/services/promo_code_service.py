@@ -7,6 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from app.application.dto.promo_code import PromoApplyResult, PromoCodeInfo
 from app.application.exceptions import PromoCodeError
+from app.presentation.i18n import normalize_lang, t
 from app.application.services.admin_log_service import AdminLogService
 from app.domain.enums import (
     AdminActionType,
@@ -209,18 +210,19 @@ class PromoCodeService:
             f"Сумма скидок: {stats['total_discount']:.0f} ₽"
         )
 
-    def format_applied_message(self, result: PromoApplyResult) -> str:
+    def format_applied_message(self, result: PromoApplyResult, *, lang: str | None = None) -> str:
+        code = normalize_lang(lang)
         lines = [
-            "🎁 <b>Промокод применён</b>",
-            f"Код: <code>{result.code}</code>",
-            f"Было: <b>{result.original_amount:.0f} ₽</b>",
+            t(code, "promo.applied_title"),
+            t(code, "promo.applied_code", code=result.code),
+            t(code, "promo.applied_was", amount=result.original_amount),
         ]
         if result.discount_type != PromoDiscountType.EXTRA_DAYS.value:
-            lines.append(f"Скидка: <b>{result.discount_amount:.0f} ₽</b>")
-            lines.append(f"К оплате: <b>{result.final_amount:.0f} ₽</b>")
+            lines.append(t(code, "promo.applied_discount", amount=result.discount_amount))
+            lines.append(t(code, "promo.applied_final", amount=result.final_amount))
         else:
-            lines.append(f"К оплате: <b>{result.final_amount:.0f} ₽</b>")
-            lines.append(f"➕ Дополнительно: <b>{result.extra_days} дн.</b>")
+            lines.append(t(code, "promo.applied_final", amount=result.final_amount))
+            lines.append(t(code, "promo.applied_extra_days", days=result.extra_days))
         return "\n".join(lines)
 
     def format_preview(self, draft: PromoCodeDraft) -> str:

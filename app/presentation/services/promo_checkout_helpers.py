@@ -16,6 +16,7 @@ from app.presentation.keyboards.purchase import (
 )
 from app.presentation.keyboards.promo_checkout import promo_prompt_keyboard
 from app.presentation.keyboards.renewal import renewal_checkout_keyboard
+from app.presentation.i18n import t
 
 
 async def show_promo_prompt(
@@ -29,6 +30,7 @@ async def show_promo_prompt(
     target_vpn_account_name: str | None = None,
     target_display_name: str | None = None,
     edit: bool = True,
+    lang: str | None = None,
 ) -> None:
     await save_checkout_context(
         state,
@@ -39,14 +41,15 @@ async def show_promo_prompt(
         target_vpn_account_name=target_vpn_account_name,
         target_display_name=target_display_name,
     )
-    text = f"🎁 <b>{PROMO_PROMPT_TEXT}</b>"
+    text = t(lang, "promo.prompt_title", text=t(lang, "promo.prompt"))
     if edit:
         await message.edit_text(text, reply_markup=promo_prompt_keyboard())
     else:
         await message.answer(text, reply_markup=promo_prompt_keyboard())
 
 
-PROMO_PROMPT_TEXT = "У вас есть промокод?"
+def promo_prompt_text(lang: str | None) -> str:
+    return t(lang, "promo.prompt")
 
 
 async def save_checkout_context(
@@ -100,7 +103,7 @@ async def get_pricing_from_state(data: dict) -> dict:
     }
 
 
-def promo_summary_from_state(data: dict, promo_service: PromoCodeService) -> str | None:
+def promo_summary_from_state(data: dict, promo_service: PromoCodeService, *, lang: str | None = None) -> str | None:
     if not data.get("promo_code"):
         return None
     from app.application.dto.promo_code import PromoApplyResult
@@ -114,7 +117,7 @@ def promo_summary_from_state(data: dict, promo_service: PromoCodeService) -> str
         final_amount=Decimal(str(data["final_amount"])),
         extra_days=int(data.get("extra_days_from_promo") or 0),
     )
-    return promo_service.format_applied_message(result)
+    return promo_service.format_applied_message(result, lang=lang)
 
 
 async def show_checkout_from_state(
@@ -126,6 +129,7 @@ async def show_checkout_from_state(
     promo_code_service: PromoCodeService,
     customer_vpn_service: CustomerVpnService | None = None,
     edit: bool = True,
+    lang: str | None = None,
 ) -> None:
     data = await state.get_data()
     plan_id = data.get("plan_id")
@@ -143,7 +147,7 @@ async def show_checkout_from_state(
         )
         data = await state.get_data()
 
-    promo_summary = promo_summary_from_state(data, promo_code_service)
+    promo_summary = promo_summary_from_state(data, promo_code_service, lang=lang)
     payment_details = await payment_request_service.get_payment_details_text()
     has_details = await payment_request_service.has_payment_details()
     flow = data.get("checkout_flow", "purchase")

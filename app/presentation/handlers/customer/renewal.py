@@ -9,17 +9,14 @@ from app.application.exceptions import PaymentRequestDuplicateError, PaymentRequ
 from app.application.services.admin_log_service import AdminLogService
 from app.application.services.customer_vpn_service import CustomerVpnService
 from app.application.services.promo_activation_service import PromoActivationService
-from app.domain.enums import PaymentRequestType
-from app.presentation.services.customer_provisioning_delivery import deliver_provisioning_to_customer
-from app.presentation.services.referral_notifications import send_referral_notifications
-from app.presentation.services.promo_checkout_helpers import get_pricing_from_state, show_promo_prompt
 from app.application.services.provisioning_notification_service import ProvisioningNotificationService
 from app.application.services.payment_request_service import PaymentRequestService
 from app.application.services.plan_service import PlanService
 from app.config.settings import Settings
-from app.presentation.services.payment_request_admin_notification import notify_admins_new_payment_request
-from app.domain.enums import ReceiptFileType
+from app.domain.enums import PaymentRequestType, ReceiptFileType
 from app.infrastructure.db.models.vpn_account import VpnAccount
+from app.presentation.filters.customer_menu import menu_text_filter
+from app.presentation.i18n import t
 from app.presentation.keyboards.customer import customer_main_keyboard
 from app.presentation.keyboards.renewal import (
     RENEW_CANCEL,
@@ -27,35 +24,28 @@ from app.presentation.keyboards.renewal import (
     RENEW_SELECT_PREFIX,
     renewal_plan_keyboard,
 )
+from app.presentation.services.customer_provisioning_delivery import deliver_provisioning_to_customer
+from app.presentation.services.payment_request_admin_notification import notify_admins_new_payment_request
+from app.presentation.services.promo_checkout_helpers import get_pricing_from_state, show_promo_prompt
+from app.presentation.services.referral_notifications import send_referral_notifications
 from app.presentation.states.renewal import RenewReceiptStates
 
 router = Router(name="customer_renewal")
 
-NO_PLANS_TEXT = "😔 Сейчас нет доступных тарифов. Попробуйте позже или обратитесь в поддержку."
-INVALID_RECEIPT_TEXT = (
-    "Пожалуйста, отправьте <b>фото</b> или <b>документ</b> с чеком об оплате.\n"
-    "Если не можете прикрепить файл — отправьте текстовый комментарий."
-)
-RECEIPT_PROMPT = (
-    "📎 Отправьте <b>скриншот или фото чека</b> за продление.\n"
-    "Можно также отправить документ или текстовый комментарий.\n\n"
-    "<i>Для отмены отправьте /cancel</i>"
-)
-SUCCESS_TEXT = "✅ Заявка на продление отправлена администратору. После проверки VPN будет продлён."
 
-
-@router.message(F.text == "🔄 Продлить VPN")
+@router.message(menu_text_filter("menu.renew_vpn"))
 async def handle_renew_vpn_menu(
     message: Message,
     state: FSMContext,
     plan_service: PlanService,
     customer_vpn_service: CustomerVpnService,
+    lang: str,
 ) -> None:
     await state.clear()
     account = None
     if message.from_user is not None:
         account = await customer_vpn_service.get_primary_account(message.from_user.id)
-    await _send_renewal_plan_list(message, plan_service, vpn_account=account)
+    await _send_renewal_plan_list(message, plan_service, vpn_account=account, lang=lang)
 
 
 @router.callback_query(F.data.startswith(RENEW_SELECT_PREFIX))
@@ -63,8 +53,7 @@ async def handle_renew_plan_selected(
     callback: CallbackQuery,
     state: FSMContext,
     plan_service: PlanService,
-    payment_request_service: PaymentRequestService,
-    customer_vpn_service: CustomerVpnService,
+    lang: str,
 ) -> None:
     await state.clear()
     if callback.data is None or callback.message is None or callback.from_user is None:
@@ -73,13 +62,13 @@ async def handle_renew_plan_selected(
 
     parsed = _parse_plan_and_account(callback.data, RENEW_SELECT_PREFIX)
     if parsed is None:
-        await callback.answer("Некорректный тариф.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_plan"), show_alert=True)
         return
     plan_id, vpn_account_id = parsed
 
     plan = await plan_service.get_active_plan(plan_id)
     if plan is None:
-        await callback.answer("Тариф недоступен.", show_alert=True)
+        await callback.answer(t(lang, "common.plan_unavailable"), show_alert=True)
         return
 
     await show_promo_prompt(
@@ -89,18 +78,19 @@ async def handle_renew_plan_selected(
         plan_id=plan.id,
         request_type=PaymentRequestType.RENEWAL.value,
         vpn_account_id=vpn_account_id,
+        lang=lang,
     )
     await callback.answer()
 
 
 @router.callback_query(F.data == RENEW_CANCEL)
-async def handle_renew_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+async def handle_renew_cancel(callback: CallbackQuery, state: FSMContext, lang: str) -> None:
     await state.clear()
     if callback.message is None:
         await callback.answer()
         return
-    await callback.message.edit_text("❌ Продление отменено.")
-    await callback.message.answer("Выберите действие в меню.", reply_markup=customer_main_keyboard())
+    await callback.message.edit_text(t(lang, "renewal.cancel"))
+    await callback.message.answer(t(lang, "common.main_menu"), reply_markup=customer_main_keyboard(lang))
     await callback.answer()
 
 
@@ -113,6 +103,7 @@ async def handle_renew_paid(
     payment_request_service: PaymentRequestService,
     promo_activation_service: PromoActivationService,
     provisioning_notification_service: ProvisioningNotificationService,
+    lang: str,
 ) -> None:
     if callback.data is None or callback.from_user is None or callback.message is None:
         await callback.answer()
@@ -120,15 +111,12 @@ async def handle_renew_paid(
 
     parsed = _parse_plan_and_account(callback.data, RENEW_PAID_PREFIX)
     if parsed is None:
-        await callback.answer("Некорректный тариф.", show_alert=True)
+        await callback.answer(t(lang, "common.invalid_plan"), show_alert=True)
         return
     plan_id, vpn_account_id = parsed
 
     if await payment_request_service.has_pending_renewal(callback.from_user.id):
-        await callback.answer(
-            "⏳ У вас уже есть заявка на продление на проверке.",
-            show_alert=True,
-        )
+        await callback.answer(t(lang, "common.pending_renewal"), show_alert=True)
         return
 
     data = await state.get_data()
@@ -166,12 +154,12 @@ async def handle_renew_paid(
             )
         if outcome.referral_notifications:
             await send_referral_notifications(bot, outcome.referral_notifications)
-        await callback.message.answer(outcome.customer_message, reply_markup=customer_main_keyboard())
-        await callback.answer("✅ VPN продлён по промокоду.")
+        await callback.message.answer(outcome.customer_message, reply_markup=customer_main_keyboard(lang))
+        await callback.answer(t(lang, "renewal.promo_activated"))
         return
 
     await state.set_state(RenewReceiptStates.waiting_receipt)
-    await callback.message.answer(RECEIPT_PROMPT)
+    await callback.message.answer(t(lang, "renewal.receipt_prompt"))
     await callback.answer()
 
 
@@ -183,6 +171,7 @@ async def handle_renew_receipt_photo(
     payment_request_service: PaymentRequestService,
     settings: Settings,
     admin_log_service: AdminLogService,
+    lang: str,
 ) -> None:
     if message.from_user is None or not message.photo:
         return
@@ -197,6 +186,7 @@ async def handle_renew_receipt_photo(
         receipt_file_type=ReceiptFileType.PHOTO.value,
         user_comment=None,
         receipt_message_id=message.message_id,
+        lang=lang,
     )
 
 
@@ -208,6 +198,7 @@ async def handle_renew_receipt_document(
     payment_request_service: PaymentRequestService,
     settings: Settings,
     admin_log_service: AdminLogService,
+    lang: str,
 ) -> None:
     if message.from_user is None or message.document is None:
         return
@@ -222,6 +213,7 @@ async def handle_renew_receipt_document(
         receipt_file_type=ReceiptFileType.DOCUMENT.value,
         user_comment=message.caption,
         receipt_message_id=message.message_id,
+        lang=lang,
     )
 
 
@@ -233,12 +225,13 @@ async def handle_renew_receipt_text(
     payment_request_service: PaymentRequestService,
     settings: Settings,
     admin_log_service: AdminLogService,
+    lang: str,
 ) -> None:
     if message.from_user is None:
         return
     text = (message.text or "").strip()
     if not text:
-        await message.answer(INVALID_RECEIPT_TEXT)
+        await message.answer(t(lang, "renewal.invalid_receipt"))
         return
     await _submit_renew_receipt(
         message,
@@ -251,12 +244,13 @@ async def handle_renew_receipt_text(
         receipt_file_type=ReceiptFileType.TEXT.value,
         user_comment=text,
         receipt_message_id=message.message_id,
+        lang=lang,
     )
 
 
 @router.message(StateFilter(RenewReceiptStates.waiting_receipt))
-async def handle_renew_receipt_invalid(message: Message) -> None:
-    await message.answer(INVALID_RECEIPT_TEXT)
+async def handle_renew_receipt_invalid(message: Message, lang: str) -> None:
+    await message.answer(t(lang, "renewal.invalid_receipt"))
 
 
 async def start_renewal_flow(
@@ -265,6 +259,7 @@ async def start_renewal_flow(
     vpn_account_id: int,
     plan_service: PlanService,
     customer_vpn_service: CustomerVpnService,
+    lang: str,
 ) -> None:
     if callback.message is None or callback.from_user is None:
         await callback.answer()
@@ -272,7 +267,7 @@ async def start_renewal_flow(
 
     plans = await plan_service.list_active_plans()
     if not plans:
-        await callback.message.answer(NO_PLANS_TEXT, reply_markup=customer_main_keyboard())
+        await callback.message.answer(t(lang, "renewal.no_plans"), reply_markup=customer_main_keyboard(lang))
         await callback.answer()
         return
 
@@ -282,7 +277,7 @@ async def start_renewal_flow(
     )
     resolved_id = account.id if account is not None else vpn_account_id
     await callback.message.answer(
-        "🔄 <b>Выберите тариф для продления:</b>",
+        t(lang, "renewal.choose_plan"),
         reply_markup=renewal_plan_keyboard(plans, vpn_account_id=resolved_id),
     )
     await callback.answer()
@@ -293,27 +288,18 @@ async def _send_renewal_plan_list(
     plan_service: PlanService,
     *,
     vpn_account: VpnAccount | None,
+    lang: str,
 ) -> None:
     plans = await plan_service.list_active_plans()
     if not plans:
-        await message.answer(NO_PLANS_TEXT, reply_markup=customer_main_keyboard())
+        await message.answer(t(lang, "renewal.no_plans"), reply_markup=customer_main_keyboard(lang))
         return
 
     account_id = vpn_account.id if vpn_account is not None else None
     await message.answer(
-        "🔄 <b>Выберите тариф для продления:</b>",
+        t(lang, "renewal.choose_plan"),
         reply_markup=renewal_plan_keyboard(plans, vpn_account_id=account_id),
     )
-
-
-async def _resolve_account(
-    customer_vpn_service: CustomerVpnService,
-    telegram_id: int,
-    vpn_account_id: int | None,
-) -> VpnAccount | None:
-    if vpn_account_id is None:
-        return await customer_vpn_service.get_primary_account(telegram_id)
-    return await customer_vpn_service.get_account_for_user(telegram_id, vpn_account_id)
 
 
 async def _submit_renew_receipt(
@@ -328,6 +314,7 @@ async def _submit_renew_receipt(
     receipt_file_type: str,
     user_comment: str | None,
     receipt_message_id: int | None,
+    lang: str,
 ) -> None:
     if message.from_user is None:
         return
@@ -337,7 +324,7 @@ async def _submit_renew_receipt(
     vpn_account_id = data.get("vpn_account_id")
     if not isinstance(plan_id, int):
         await state.clear()
-        await message.answer("Сессия истекла. Начните продление заново.", reply_markup=customer_main_keyboard())
+        await message.answer(t(lang, "common.session_expired_renewal"), reply_markup=customer_main_keyboard(lang))
         return
     resolved_account_id = vpn_account_id if isinstance(vpn_account_id, int) else None
 
@@ -359,15 +346,15 @@ async def _submit_renew_receipt(
         )
     except PaymentRequestDuplicateError as exc:
         await state.clear()
-        await message.answer(exc.message, reply_markup=customer_main_keyboard())
+        await message.answer(exc.message, reply_markup=customer_main_keyboard(lang))
         return
     except PaymentRequestNotFoundError as exc:
         await state.clear()
-        await message.answer(exc.message, reply_markup=customer_main_keyboard())
+        await message.answer(exc.message, reply_markup=customer_main_keyboard(lang))
         return
 
     await state.clear()
-    await message.answer(SUCCESS_TEXT, reply_markup=customer_main_keyboard())
+    await message.answer(t(lang, "renewal.success"), reply_markup=customer_main_keyboard(lang))
     await notify_admins_new_payment_request(
         bot,
         settings=settings,

@@ -11,6 +11,7 @@ from app.application.utils.referral_code import parse_start_referral_payload
 from app.config.settings import Settings
 from app.presentation.keyboards.admin import admin_main_keyboard
 from app.presentation.keyboards.customer import customer_main_keyboard
+from app.presentation.i18n import t
 from app.presentation.utils.telegram import map_telegram_user
 
 logger = logging.getLogger(__name__)
@@ -34,24 +35,21 @@ async def handle_start(
         referral_code=referral_code,
     )
     is_admin = settings.is_admin(user.id)
+    lang = user_info.language_code
 
     logger.info(
         "User started bot",
         extra={"telegram_id": user.id, "username": user.username, "is_admin": is_admin},
     )
 
-    greeting = (
-        f"Здравствуйте, {user_info.full_name}!\n\n"
-        "Добро пожаловать в VPN-бот.\n"
-        "Выберите действие в меню ниже."
-    )
+    greeting = t(lang, "start.greeting", name=user_info.full_name)
 
     if is_admin:
-        greeting += "\n\n🔐 У вас есть доступ к админ-панели."
+        greeting += t(lang, "start.admin_note")
         await message.answer(greeting, reply_markup=admin_main_keyboard())
         return
 
-    await message.answer(greeting, reply_markup=customer_main_keyboard())
+    await message.answer(greeting, reply_markup=customer_main_keyboard(lang))
 
 
 @router.message(Command("admin"))

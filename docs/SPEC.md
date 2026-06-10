@@ -454,6 +454,24 @@ Not rewarded: free plans, zero-amount (unless allowed), failed/canceled, self-re
 
 Migration: `0009_referrals`.
 
+## Customer i18n (RU/EN)
+
+Migration **0010** — `users.language_code VARCHAR(8) NOT NULL DEFAULT 'ru'` (`ru` | `en`).
+
+| Component | Location |
+|---|---|
+| Translations | `app/presentation/i18n.py` — `t(lang, key, **kwargs)`; missing key → fallback `ru` |
+| User language | `UserService.get_user_language` / `set_user_language`; initial lang from Telegram `en*` → `en`, else `ru` |
+| Middleware | `UserLanguageMiddleware` injects `lang` into handler data |
+| Menu filter | `menu_text_filter(key)` matches RU and EN reply-keyboard labels |
+| Language UI | **🌐 Язык / Language** → inline picker; callbacks `lang:set:ru`, `lang:set:en`, `lang:back` |
+
+**Translated (customer):** `/start`, main menu, purchase/renewal flows, «Мой VPN», support/instruction entry, promo checkout, referral screen, broadcast opt-out, FSM cancel.
+
+**Not translated:** admin panel (commands, buttons, messages remain Russian).
+
+Button handlers accept both RU and EN reply labels (e.g. `📊 Мой VPN` / `📊 My VPN`) via `all_menu_texts()`.
+
 ### Soft delete vs disabled
 
 - **Disabled:** account remains in DB and panels; can be re-enabled if expiry valid.
@@ -603,4 +621,5 @@ Installer: `bash <(curl -Ls https://raw.githubusercontent.com/PsychicBAM/marzban
 14. ✅ Admin broadcasts / promotions (`📣 Рассылки`, migration `0007`)
 15. ✅ Promo codes / discounts (`🎁 Промокоды`, migration `0008`)
 16. ✅ Referral program (`🎁 Рефералы`, migration `0009`)
-17. ✅ GitHub release + one-command install (`install.sh`, `update.sh`, `backup.sh`, QA checklist)
+17. ✅ Customer i18n RU/EN (`🌐 Язык`, migration `0010`)
+18. ✅ GitHub release + one-command install (`install.sh`, `update.sh`, `backup.sh`, QA checklist)

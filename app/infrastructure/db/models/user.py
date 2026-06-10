@@ -24,6 +24,7 @@ class User(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    language_code: Mapped[str] = mapped_column(String(8), nullable=False, default="ru", server_default="ru")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
