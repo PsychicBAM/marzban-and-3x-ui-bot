@@ -8,6 +8,7 @@ from app.presentation.filters.customer_menu import menu_text_filter
 from app.presentation.i18n import t
 from app.presentation.keyboards.admin_broadcast import promo_settings_keyboard
 from app.presentation.keyboards.customer import customer_main_keyboard
+from app.presentation.utils.html_format import CUSTOMER_PARSE_MODE
 from app.presentation.utils.telegram import safe_edit_message_text
 
 router = Router(name="customer_promo_settings")
@@ -33,6 +34,7 @@ async def handle_promo_settings(message: Message, uow: UnitOfWork, lang: str) ->
     await message.answer(
         _promo_settings_text(enabled=user.promo_enabled, lang=lang),
         reply_markup=promo_settings_keyboard(enabled=user.promo_enabled),
+        parse_mode=CUSTOMER_PARSE_MODE,
     )
 
 

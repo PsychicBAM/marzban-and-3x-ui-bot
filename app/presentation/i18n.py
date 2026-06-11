@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 SUPPORTED_LANGS = ("ru", "en")
@@ -17,14 +19,27 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "menu.buy_vpn": "🛒 Купить VPN",
         "menu.renew_vpn": "🔄 Продлить VPN",
         "menu.my_vpn": "📊 Мой VPN",
-        "menu.instruction": "ℹ️ Инструкция",
+        "menu.guide": "📘 Инструкция",
+        "menu.faq": "❓ FAQ",
         "menu.support": "🆘 Поддержка",
         "menu.invite_friend": "🎁 Пригласить друга",
         "menu.promo_news": "🔔 Акции и новости",
         "menu.language": "🌐 Язык",
         "menu.placeholder": "Выберите действие",
-        "start.greeting": "Здравствуйте, {name}!\n\nДобро пожаловать в VPN-бот.\nВыберите действие в меню ниже.",
+        "start.greeting": (
+            "Здравствуйте, {first_name}!\n\n"
+            "Добро пожаловать в KeyGate VPN — быстрый и стабильный доступ к интернету.\n\n"
+            "Что можно сделать:\n"
+            "🛒 Купить VPN — выбрать тариф и оформить подписку\n"
+            "📊 Мой VPN — ссылки, QR-код и статус подписки\n"
+            "🔄 Продлить VPN — продлить действующую подписку\n"
+            "🎁 Пригласить друга — бонусы за рефералов\n"
+            "🆘 Поддержка — связаться с нами\n\n"
+            "Выберите действие в меню ниже."
+        ),
+        "start.banner_caption": "👋 KeyGate VPN",
         "start.admin_note": "\n\n🔐 У вас есть доступ к админ-панели.",
+        "start.menu_hint": "Выберите действие в меню ниже.",
         "lang.choose": "🌐 Выберите язык",
         "lang.changed_ru": "✅ Язык изменён на русский",
         "lang.changed_en": "✅ Language changed to English",
@@ -52,6 +67,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "common.done": "Готово.",
         "purchase.subscription_data_missing": "Данные подписки не найдены. Начните заново.",
         "purchase.no_plans": "😔 Сейчас нет доступных тарифов. Попробуйте позже или обратитесь в поддержку.",
+        "purchase.banner_caption": "🛒 Купить VPN\nВыберите тариф для подключения.",
         "purchase.choose_plan": "🛒 <b>Выберите тариф:</b>",
         "purchase.subscription_choice": "У вас уже есть активный VPN. Что вы хотите сделать?",
         "purchase.renew_which": "🔄 <b>Какую подписку продлить?</b>",
@@ -171,21 +187,146 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Активируйте VPN, чтобы применить бонус."
         ),
         "support.title": "🆘 <b>Поддержка</b>",
-        "instruction.title": "📖 <b>Инструкция</b>",
+        "guide.card_caption": (
+            "📘 <b>ИНСТРУКЦИЯ</b>\n"
+            "На каком устройстве нужно настроить VPN?"
+        ),
+        "guide.btn.iphone": "📱 iPhone / iPad",
+        "guide.btn.android": "🤖 Android",
+        "guide.btn.mac": "🍎 Mac",
+        "guide.btn.windows": "💻 Windows",
+        "guide.btn.tv": "📺 Телевизор / TV",
+        "guide.btn.back_menu": "🔙 Назад",
+        "guide.btn.back_devices": "🔙 К устройствам",
+        "guide.steps.iphone": (
+            "<b>📱 iPhone / iPad</b>\n\n"
+            "1. Откройте <b>📊 Мой VPN</b> и скопируйте ссылку или получите QR-код.\n"
+            "2. Установите приложение v2RayTun, Streisand или Hiddify из App Store.\n"
+            "3. В приложении нажмите «+» → «Import from clipboard» или отсканируйте QR.\n"
+            "4. Выберите профиль и включите VPN."
+        ),
+        "guide.steps.android": (
+            "<b>🤖 Android</b>\n\n"
+            "1. Откройте <b>📊 Мой VPN</b> и скопируйте ссылку или получите QR-код.\n"
+            "2. Установите v2rayNG или Hiddify из Google Play.\n"
+            "3. Нажмите «+» → «Import config from clipboard» или отсканируйте QR.\n"
+            "4. Нажмите подключение и разрешите VPN."
+        ),
+        "guide.steps.windows": (
+            "<b>💻 Windows</b>\n\n"
+            "1. Откройте <b>📊 Мой VPN</b> и скопируйте ссылку подписки.\n"
+            "2. Установите Hiddify или v2rayN.\n"
+            "3. Вставьте ссылку через «Import from clipboard» / «Add profile».\n"
+            "4. Выберите сервер и подключитесь."
+        ),
+        "guide.steps.macos": (
+            "<b>🍎 macOS</b>\n\n"
+            "1. Откройте <b>📊 Мой VPN</b> и скопируйте ссылку или QR-код.\n"
+            "2. Установите V2Box, Streisand или Hiddify.\n"
+            "3. Импортируйте ссылку или отсканируйте QR.\n"
+            "4. Включите VPN в приложении."
+        ),
+        "guide.steps.linux": (
+            "<b>🐧 Linux</b>\n\n"
+            "1. Откройте <b>📊 Мой VPN</b> и скопируйте ссылку подписки.\n"
+            "2. Установите v2rayA, Nekoray или Hiddify.\n"
+            "3. Импортируйте ссылку в клиент.\n"
+            "4. Выберите профиль и подключитесь."
+        ),
+        "guide.steps.tv": (
+            "<b>📺 Телевизор / Android TV</b>\n\n"
+            "1. Откройте Google Play на телевизоре.\n"
+            "2. Установите приложение Hiddify, v2rayNG или другое приложение "
+            "с поддержкой VLESS/VMess/Trojan подписок.\n"
+            "3. Откройте в боте <b>📊 Мой VPN</b> и скопируйте ссылку подписки.\n"
+            "4. Отправьте ссылку на телевизор удобным способом: через Telegram Saved Messages, "
+            "QR-код, браузер или приложение для передачи текста.\n"
+            "5. Добавьте ссылку подписки в приложение на телевизоре.\n"
+            "6. Нажмите обновить подписку и подключитесь.\n\n"
+            "Если на телевизоре нет Google Play, используйте Android TV Box "
+            "или установите приложение вручную через APK."
+        ),
+        "faq.title": "❓ <b>Частые вопросы</b>",
+        "faq.choose": "Выберите вопрос:",
+        "faq.btn.back_menu": "🔙 Назад",
+        "faq.btn.back_list": "🔙 К вопросам",
+        "faq.q.vpn_connect": "VPN не подключается",
+        "faq.q.refresh_sub": "Как обновить подписку",
+        "faq.q.device_limit": "Сколько устройств можно использовать",
+        "faq.q.qr_code": "Где найти QR-код",
+        "faq.q.renew": "Как продлить VPN",
+        "faq.q.referral": "Как работает реферальная программа",
+        "faq.q.promo_off": "Как отключить акции",
+        "faq.a.vpn_connect": (
+            "<b>VPN не подключается</b>\n\n"
+            "• Проверьте срок подписки в <b>📊 Мой VPN</b>.\n"
+            "• Обновите подписку в приложении (pull-to-refresh).\n"
+            "• Переимпортируйте ссылку или QR-код.\n"
+            "• Если не помогло — напишите в <b>🆘 Поддержка</b>."
+        ),
+        "faq.a.refresh_sub": (
+            "<b>Как обновить подписку</b>\n\n"
+            "В клиентском приложении найдите кнопку обновления подписки "
+            "(↻ / Update subscription / Pull to refresh).\n\n"
+            "Если ссылка изменилась — скопируйте новую из <b>📊 Мой VPN</b>."
+        ),
+        "faq.a.device_limit": (
+            "<b>Сколько устройств можно использовать</b>\n\n"
+            "Лимит указан в <b>📊 Мой VPN</b> (поле «Устройств»).\n"
+            "Обычно это 1–3 устройства на подписку. "
+            "При превышении лимита подключение может не работать."
+        ),
+        "faq.a.qr_code": (
+            "<b>Где найти QR-код</b>\n\n"
+            "1. Откройте <b>📊 Мой VPN</b>.\n"
+            "2. Выберите подписку (если их несколько).\n"
+            "3. Нажмите кнопку QR-кода — бот отправит изображения для подключения."
+        ),
+        "faq.a.renew": (
+            "<b>Как продлить VPN</b>\n\n"
+            "1. Нажмите <b>🔄 Продлить VPN</b> в главном меню.\n"
+            "2. Выберите тариф и оплатите.\n"
+            "3. Отправьте чек — после проверки срок будет продлён.\n\n"
+            "Также продление доступно из карточки подписки в <b>📊 Мой VPN</b>."
+        ),
+        "faq.a.referral": (
+            "<b>Как работает реферальная программа</b>\n\n"
+            "1. Откройте <b>🎁 Пригласить друга</b> и отправьте ссылку другу.\n"
+            "2. После оплаты VPN другом вам начисляются бонусные дни.\n"
+            "3. Бонусы применяются к активной подписке автоматически или вручную."
+        ),
+        "faq.a.promo_off": (
+            "<b>Как отключить акции</b>\n\n"
+            "1. Откройте <b>🔔 Акции и новости</b> в главном меню.\n"
+            "2. Нажмите «Выключить» — промо-рассылки от бота перестанут приходить."
+        ),
         "user.default_name": "Пользователь",
     },
     "en": {
         "menu.buy_vpn": "🛒 Buy VPN",
         "menu.renew_vpn": "🔄 Renew VPN",
         "menu.my_vpn": "📊 My VPN",
-        "menu.instruction": "ℹ️ Instructions",
+        "menu.guide": "📘 Guide",
+        "menu.faq": "❓ FAQ",
         "menu.support": "🆘 Support",
         "menu.invite_friend": "🎁 Invite a friend",
         "menu.promo_news": "🔔 Promotions & news",
         "menu.language": "🌐 Language",
         "menu.placeholder": "Choose an action",
-        "start.greeting": "Hello, {name}!\n\nWelcome to the VPN bot.\nChoose an action from the menu below.",
+        "start.greeting": (
+            "Hello, {first_name}!\n\n"
+            "Welcome to KeyGate VPN — fast and reliable internet access.\n\n"
+            "What you can do:\n"
+            "🛒 Buy VPN — choose a plan and subscribe\n"
+            "📊 My VPN — links, QR code, and subscription status\n"
+            "🔄 Renew VPN — extend your active subscription\n"
+            "🎁 Invite a friend — earn referral bonuses\n"
+            "🆘 Support — contact us\n\n"
+            "Choose an action from the menu below."
+        ),
+        "start.banner_caption": "👋 KeyGate VPN",
         "start.admin_note": "\n\n🔐 You have access to the admin panel.",
+        "start.menu_hint": "Choose an action from the menu below.",
         "lang.choose": "🌐 Choose language",
         "lang.changed_ru": "✅ Язык изменён на русский",
         "lang.changed_en": "✅ Language changed to English",
@@ -213,6 +354,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "common.done": "Done.",
         "purchase.subscription_data_missing": "Subscription data not found. Please start again.",
         "purchase.no_plans": "😔 No plans available right now. Try again later or contact support.",
+        "purchase.banner_caption": "🛒 Buy VPN\nChoose a plan to continue.",
         "purchase.choose_plan": "🛒 <b>Choose a plan:</b>",
         "purchase.subscription_choice": "You already have an active VPN. What would you like to do?",
         "purchase.renew_which": "🔄 <b>Which subscription to renew?</b>",
@@ -332,7 +474,119 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Activate VPN to apply the bonus."
         ),
         "support.title": "🆘 <b>Support</b>",
-        "instruction.title": "📖 <b>Instructions</b>",
+        "guide.card_caption": (
+            "📘 <b>GUIDE</b>\n"
+            "Which device do you want to set up VPN on?"
+        ),
+        "guide.btn.iphone": "📱 iPhone / iPad",
+        "guide.btn.android": "🤖 Android",
+        "guide.btn.mac": "🍎 Mac",
+        "guide.btn.windows": "💻 Windows",
+        "guide.btn.tv": "📺 TV",
+        "guide.btn.back_menu": "🔙 Back",
+        "guide.btn.back_devices": "🔙 Back to devices",
+        "guide.steps.iphone": (
+            "<b>📱 iPhone / iPad</b>\n\n"
+            "1. Open <b>📊 My VPN</b> and copy the link or get a QR code.\n"
+            "2. Install v2RayTun, Streisand, or Hiddify from the App Store.\n"
+            "3. Tap «+» → «Import from clipboard» or scan the QR code.\n"
+            "4. Select the profile and turn VPN on."
+        ),
+        "guide.steps.android": (
+            "<b>🤖 Android</b>\n\n"
+            "1. Open <b>📊 My VPN</b> and copy the link or get a QR code.\n"
+            "2. Install v2rayNG or Hiddify from Google Play.\n"
+            "3. Tap «+» → «Import config from clipboard» or scan the QR.\n"
+            "4. Connect and allow the VPN permission."
+        ),
+        "guide.steps.windows": (
+            "<b>💻 Windows</b>\n\n"
+            "1. Open <b>📊 My VPN</b> and copy the subscription link.\n"
+            "2. Install Hiddify or v2rayN.\n"
+            "3. Paste the link via «Import from clipboard» / «Add profile».\n"
+            "4. Select a server and connect."
+        ),
+        "guide.steps.macos": (
+            "<b>🍎 macOS</b>\n\n"
+            "1. Open <b>📊 My VPN</b> and copy the link or QR code.\n"
+            "2. Install V2Box, Streisand, or Hiddify.\n"
+            "3. Import the link or scan the QR code.\n"
+            "4. Enable VPN in the app."
+        ),
+        "guide.steps.linux": (
+            "<b>🐧 Linux</b>\n\n"
+            "1. Open <b>📊 My VPN</b> and copy the subscription link.\n"
+            "2. Install v2rayA, Nekoray, or Hiddify.\n"
+            "3. Import the link in the client.\n"
+            "4. Select the profile and connect."
+        ),
+        "guide.steps.tv": (
+            "<b>📺 TV / Android TV</b>\n\n"
+            "1. Open Google Play on your TV.\n"
+            "2. Install Hiddify, v2rayNG, or another app that supports "
+            "VLESS/VMess/Trojan subscriptions.\n"
+            "3. Open <b>📊 My VPN</b> in the bot and copy your subscription link.\n"
+            "4. Send the link to your TV using Telegram Saved Messages, QR code, browser, "
+            "or any text transfer app.\n"
+            "5. Add the subscription link inside the TV app.\n"
+            "6. Refresh the subscription and connect.\n\n"
+            "If your TV does not have Google Play, use an Android TV Box "
+            "or install the app manually with an APK."
+        ),
+        "faq.title": "❓ <b>FAQ</b>",
+        "faq.choose": "Choose a question:",
+        "faq.btn.back_menu": "🔙 Back",
+        "faq.btn.back_list": "🔙 Back to questions",
+        "faq.q.vpn_connect": "VPN does not connect",
+        "faq.q.refresh_sub": "How to refresh subscription",
+        "faq.q.device_limit": "Device limit",
+        "faq.q.qr_code": "Where to find QR code",
+        "faq.q.renew": "How to renew VPN",
+        "faq.q.referral": "How referrals work",
+        "faq.q.promo_off": "How to disable promo messages",
+        "faq.a.vpn_connect": (
+            "<b>VPN does not connect</b>\n\n"
+            "• Check expiry in <b>📊 My VPN</b>.\n"
+            "• Refresh the subscription in your app (pull-to-refresh).\n"
+            "• Re-import the link or QR code.\n"
+            "• Still stuck? Contact <b>🆘 Support</b>."
+        ),
+        "faq.a.refresh_sub": (
+            "<b>How to refresh subscription</b>\n\n"
+            "In your VPN app, use the update button "
+            "(↻ / Update subscription / Pull to refresh).\n\n"
+            "If the link changed, copy the new one from <b>📊 My VPN</b>."
+        ),
+        "faq.a.device_limit": (
+            "<b>Device limit</b>\n\n"
+            "The limit is shown in <b>📊 My VPN</b> (Devices field).\n"
+            "Usually 1–3 devices per subscription. "
+            "Exceeding the limit may block new connections."
+        ),
+        "faq.a.qr_code": (
+            "<b>Where to find QR code</b>\n\n"
+            "1. Open <b>📊 My VPN</b>.\n"
+            "2. Select a subscription (if you have several).\n"
+            "3. Tap the QR button — the bot will send connection images."
+        ),
+        "faq.a.renew": (
+            "<b>How to renew VPN</b>\n\n"
+            "1. Tap <b>🔄 Renew VPN</b> in the main menu.\n"
+            "2. Choose a plan and pay.\n"
+            "3. Send the receipt — your term will be extended after review.\n\n"
+            "You can also renew from the subscription card in <b>📊 My VPN</b>."
+        ),
+        "faq.a.referral": (
+            "<b>How referrals work</b>\n\n"
+            "1. Open <b>🎁 Invite a friend</b> and share your link.\n"
+            "2. When your friend pays for VPN, you earn bonus days.\n"
+            "3. Bonuses apply to your active subscription automatically or manually."
+        ),
+        "faq.a.promo_off": (
+            "<b>How to disable promo messages</b>\n\n"
+            "1. Open <b>🔔 Promotions & news</b> in the main menu.\n"
+            "2. Tap «Disable» — promotional broadcasts will stop."
+        ),
         "user.default_name": "User",
     },
 }
@@ -349,7 +603,11 @@ def t(lang: str | None, key: str, **kwargs: object) -> str:
     bundle = TRANSLATIONS.get(code, TRANSLATIONS[DEFAULT_LANG])
     text = bundle.get(key) or TRANSLATIONS[DEFAULT_LANG].get(key, key)
     if kwargs:
-        return text.format(**kwargs)
+        safe_kwargs = {
+            key: escape(str(value), quote=False) if isinstance(value, str) else value
+            for key, value in kwargs.items()
+        }
+        return text.format(**safe_kwargs)
     return text
 
 

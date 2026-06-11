@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import logging
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -558,8 +559,8 @@ class PaymentRequestService:
             "",
             plan_details,
             "",
-            f"🏷 Название: <b>{display_name}</b>",
-            f"👤 Имя в панели: <code>{vpn_account_name}</code>",
+            f"🏷 Название: <b>{html.escape(display_name, quote=False)}</b>",
+            f"👤 Имя в панели: <code>{html.escape(vpn_account_name, quote=False)}</code>",
             "",
         ]
         if promo_summary:

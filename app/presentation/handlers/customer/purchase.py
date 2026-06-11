@@ -30,6 +30,9 @@ from app.domain.enums import ReceiptFileType
 from app.presentation.filters.customer_menu import menu_text_filter
 from app.presentation.i18n import t
 from app.presentation.keyboards.customer import customer_main_keyboard
+from app.presentation.utils.customer_ui import send_keygate_card
+from app.presentation.utils.html_format import CUSTOMER_PARSE_MODE
+from app.presentation.utils.telegram import edit_or_answer_text
 from app.presentation.keyboards.purchase import (
     PURCHASE_CANCEL,
     PURCHASE_CHOICE_RENEW_PREFIX,
@@ -55,11 +58,16 @@ async def handle_buy_vpn(message: Message, state: FSMContext, plan_service: Plan
     await state.clear()
     plans = await plan_service.list_active_plans()
     if not plans:
-        await message.answer(t(lang, "purchase.no_plans"), reply_markup=customer_main_keyboard(lang))
+        await message.answer(
+            t(lang, "purchase.no_plans"),
+            reply_markup=customer_main_keyboard(lang),
+            parse_mode=CUSTOMER_PARSE_MODE,
+        )
         return
 
-    await message.answer(
-        t(lang, "purchase.choose_plan"),
+    await send_keygate_card(
+        message,
+        caption=t(lang, "purchase.banner_caption"),
         reply_markup=plan_selection_keyboard(plans),
     )
 
@@ -95,12 +103,13 @@ async def handle_plan_selected(
             plan_details=plan_service.format_plan_details(plan),
         )
         keyboard = purchase_free_keyboard(plan.id)
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        await edit_or_answer_text(callback.message, text, reply_markup=keyboard)
         await callback.answer()
         return
 
     if await subscription_purchase_service.user_has_active_vpn(callback.from_user.id):
-        await callback.message.edit_text(
+        await edit_or_answer_text(
+            callback.message,
             t(lang, "purchase.subscription_choice"),
             reply_markup=purchase_choice_keyboard(plan.id),
         )
@@ -159,7 +168,8 @@ async def handle_purchase_choice_renew(
         await callback.answer()
         return
 
-    await callback.message.edit_text(
+    await edit_or_answer_text(
+        callback.message,
         t(lang, "purchase.renew_which"),
         reply_markup=purchase_renew_account_keyboard(plan.id, accounts),
     )
@@ -299,7 +309,7 @@ async def handle_purchase_cancel(callback: CallbackQuery, state: FSMContext, lan
     if callback.message is None:
         await callback.answer()
         return
-    await callback.message.edit_text(t(lang, "purchase.cancel"))
+    await edit_or_answer_text(callback.message, t(lang, "purchase.cancel"))
     await callback.message.answer(t(lang, "common.main_menu"), reply_markup=customer_main_keyboard(lang))
     await callback.answer()
 

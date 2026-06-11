@@ -110,6 +110,23 @@ cd /opt/marzban-and-3x-ui-bot
 
 Creates `backups/vpn_bot_YYYYMMDD_HHMMSS.sql.gz` with mode `600`.
 
+### Scheduled backup (cron)
+
+Daily backup at 03:00 (adjust path if install dir differs):
+
+```cron
+0 3 * * * cd /opt/marzban-and-3x-ui-bot && ./backup.sh >> /var/log/keygate_backup.log 2>&1
+```
+
+Create the log file once if needed:
+
+```bash
+sudo touch /var/log/keygate_backup.log
+sudo chmod 640 /var/log/keygate_backup.log
+```
+
+The admin panel **🩺 Статус системы** shows the latest file in `backups/` when available.
+
 ### Restore (destructive — overwrites current data)
 
 ```bash

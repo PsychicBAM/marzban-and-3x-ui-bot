@@ -13,6 +13,7 @@ from app.application.services.promo_code_service import PromoCodeService
 from app.infrastructure.db.uow import UnitOfWork
 from app.presentation.i18n import t
 from app.presentation.keyboards.customer import customer_main_keyboard
+from app.presentation.utils.html_format import CUSTOMER_PARSE_MODE
 from app.presentation.keyboards.promo_checkout import (
     PROMO_CANCEL,
     PROMO_ENTER,
@@ -32,7 +33,7 @@ router = Router(name="customer_promo_checkout")
 async def handle_promo_enter(callback: CallbackQuery, state: FSMContext, lang: str) -> None:
     await state.set_state(PromoCheckoutStates.waiting_code)
     if callback.message is not None:
-        await callback.message.answer(t(lang, "promo.code_prompt"))
+        await callback.message.answer(t(lang, "promo.code_prompt"), parse_mode=CUSTOMER_PARSE_MODE)
     await callback.answer()
 
 
@@ -78,8 +79,12 @@ async def handle_promo_skip(
 async def handle_promo_cancel(callback: CallbackQuery, state: FSMContext, lang: str) -> None:
     await state.clear()
     if callback.message is not None:
-        await callback.message.edit_text(t(lang, "promo.checkout_cancel"))
-        await callback.message.answer(t(lang, "common.main_menu"), reply_markup=customer_main_keyboard(lang))
+        await callback.message.edit_text(t(lang, "promo.checkout_cancel"), parse_mode=CUSTOMER_PARSE_MODE)
+        await callback.message.answer(
+            t(lang, "common.main_menu"),
+            reply_markup=customer_main_keyboard(lang),
+            parse_mode=CUSTOMER_PARSE_MODE,
+        )
     await callback.answer()
 
 
@@ -127,7 +132,7 @@ async def handle_promo_code_input(
         return
 
     await apply_promo_to_state(state, result)
-    await message.answer(promo_code_service.format_applied_message(result, lang=lang))
+    await message.answer(promo_code_service.format_applied_message(result, lang=lang), parse_mode=CUSTOMER_PARSE_MODE)
     await show_checkout_from_state(
         message,
         state,

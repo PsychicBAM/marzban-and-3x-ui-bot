@@ -122,7 +122,7 @@ class BroadcastService:
             target = TARGET_LABELS.get(item.target_type, item.target_type)
             created = item.created_at.strftime("%d.%m.%Y %H:%M")
             sent = item.sent_at.strftime("%d.%m.%Y %H:%M") if item.sent_at else "—"
-            lines.append(f"• {item.title}")
+            lines.append(f"• {html.escape(item.title, quote=False)}")
             lines.append(f"  {status} · {target}")
             lines.append(
                 f"  ✉️ {item.sent_count}/{item.total_recipients} · "

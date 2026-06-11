@@ -20,6 +20,7 @@ from app.application.services.provisioning_notification_service import Provision
 from app.application.services.qr_code_service import QrCodeService
 from app.application.services.settings_service import SettingsService
 from app.application.services.statistics_service import StatisticsService
+from app.application.services.system_status_service import SystemStatusService
 from app.application.services.referral_service import ReferralService
 from app.application.services.subscription_purchase_service import SubscriptionPurchaseService
 from app.application.services.user_service import UserService
@@ -106,6 +107,7 @@ class DatabaseMiddleware(BaseMiddleware):
                 admin_log_service=admin_log_service,
             )
             data["statistics_service"] = StatisticsService(uow, settings)
+            data["system_status_service"] = SystemStatusService(uow, settings)
             data["manual_provisioning_service"] = create_manual_provisioning_service(
                 uow,
                 settings,

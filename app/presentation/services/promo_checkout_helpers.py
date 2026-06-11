@@ -17,6 +17,8 @@ from app.presentation.keyboards.purchase import (
 from app.presentation.keyboards.promo_checkout import promo_prompt_keyboard
 from app.presentation.keyboards.renewal import renewal_checkout_keyboard
 from app.presentation.i18n import t
+from app.presentation.utils.html_format import CUSTOMER_PARSE_MODE
+from app.presentation.utils.telegram import edit_or_answer_text
 
 
 async def show_promo_prompt(
@@ -43,9 +45,9 @@ async def show_promo_prompt(
     )
     text = t(lang, "promo.prompt_title", text=t(lang, "promo.prompt"))
     if edit:
-        await message.edit_text(text, reply_markup=promo_prompt_keyboard())
+        await edit_or_answer_text(message, text, reply_markup=promo_prompt_keyboard())
     else:
-        await message.answer(text, reply_markup=promo_prompt_keyboard())
+        await message.answer(text, reply_markup=promo_prompt_keyboard(), parse_mode=CUSTOMER_PARSE_MODE)
 
 
 def promo_prompt_text(lang: str | None) -> str:
@@ -231,9 +233,9 @@ async def show_checkout_from_state(
 
 async def _send_text(message: Message, text: str, keyboard, *, edit: bool) -> None:
     if edit:
-        await message.edit_text(text, reply_markup=keyboard)
+        await edit_or_answer_text(message, text, reply_markup=keyboard)
     else:
-        await message.answer(text, reply_markup=keyboard)
+        await message.answer(text, reply_markup=keyboard, parse_mode=CUSTOMER_PARSE_MODE)
 
 
 def resolve_request_type_from_state(data: dict) -> str:

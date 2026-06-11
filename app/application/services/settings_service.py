@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from app.application.dto.instruction_settings import InstructionSettings
 from app.application.dto.notification_settings import NotificationSettings
 from app.application.dto.support_settings import SupportSettings
@@ -157,13 +159,14 @@ class SettingsService:
 
     def format_customer_support(self, config: SupportSettings) -> str:
         if config.text:
-            lines = [config.text]
+            lines = [html.escape(config.text, quote=False)]
         else:
             lines = ["🆘 <b>Поддержка</b>"]
         if config.username:
-            lines.append(f"Telegram: @{config.username.lstrip('@')}")
+            username = html.escape(config.username.lstrip("@"), quote=False)
+            lines.append(f"Telegram: @{username}")
         if config.url:
-            lines.append(f"Ссылка: {config.url}")
+            lines.append(f"Ссылка: {html.escape(config.url, quote=False)}")
         if not config.text and not config.username and not config.url:
             return "🆘 Контакт поддержки пока не настроен."
         return "\n\n".join(lines)
@@ -173,9 +176,9 @@ class SettingsService:
             return "Инструкция временно недоступна."
         parts: list[str] = []
         if config.text:
-            parts.append(config.text)
+            parts.append(html.escape(config.text, quote=False))
         if config.url:
-            parts.append(f"🔗 {config.url}")
+            parts.append(f"🔗 {html.escape(config.url, quote=False)}")
         if parts:
             return "\n\n".join(parts)
         return DEFAULT_INSTRUCTION_TEXT

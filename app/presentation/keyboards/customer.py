@@ -15,9 +15,10 @@ def customer_main_keyboard(lang: str | None = None) -> ReplyKeyboardMarkup:
                 KeyboardButton(text=t(code, "menu.my_vpn")),
             ],
             [
-                KeyboardButton(text=t(code, "menu.instruction")),
-                KeyboardButton(text=t(code, "menu.support")),
+                KeyboardButton(text=t(code, "menu.guide")),
+                KeyboardButton(text=t(code, "menu.faq")),
             ],
+            [KeyboardButton(text=t(code, "menu.support"))],
             [
                 KeyboardButton(text=t(code, "menu.invite_friend")),
                 KeyboardButton(text=t(code, "menu.promo_news")),

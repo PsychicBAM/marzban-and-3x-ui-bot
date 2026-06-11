@@ -8,6 +8,7 @@ from app.presentation.handlers.admin.settings import router as admin_settings_ro
 from app.presentation.handlers.admin.settings_instruction import router as admin_settings_instruction_router
 from app.presentation.handlers.admin.settings_payment import router as admin_settings_payment_router
 from app.presentation.handlers.admin.settings_support import router as admin_settings_support_router
+from app.presentation.handlers.admin.system_status import router as admin_system_status_router
 from app.presentation.handlers.admin.statistics import router as admin_statistics_router
 from app.presentation.handlers.admin.manual_key import router as admin_manual_key_router
 from app.presentation.handlers.admin.menu import router as admin_menu_router
@@ -16,6 +17,8 @@ from app.presentation.handlers.admin.tariff_actions import router as admin_tarif
 from app.presentation.handlers.admin.tariff_create import router as admin_tariff_create_router
 from app.presentation.handlers.admin.tariff_edit import router as admin_tariff_edit_router
 from app.presentation.handlers.admin.tariffs import router as admin_tariffs_router
+from app.presentation.handlers.customer.faq import router as customer_faq_router
+from app.presentation.handlers.customer.guide import router as customer_guide_router
 from app.presentation.handlers.customer.language import router as customer_language_router
 from app.presentation.handlers.customer.menu import router as customer_menu_router
 from app.presentation.handlers.customer.promo_checkout import router as customer_promo_checkout_router
@@ -36,6 +39,8 @@ def build_root_router() -> Router:
     root.include_router(customer_renewal_router)
     root.include_router(customer_my_vpn_router)
     root.include_router(customer_language_router)
+    root.include_router(customer_guide_router)
+    root.include_router(customer_faq_router)
     root.include_router(customer_menu_router)
     root.include_router(customer_promo_settings_router)
     root.include_router(admin_requests_router)
@@ -45,6 +50,7 @@ def build_root_router() -> Router:
     root.include_router(admin_settings_support_router)
     root.include_router(admin_settings_instruction_router)
     root.include_router(admin_statistics_router)
+    root.include_router(admin_system_status_router)
     root.include_router(admin_tariffs_router)
     root.include_router(admin_tariff_create_router)
     root.include_router(admin_tariff_edit_router)
