@@ -15,6 +15,7 @@ from app.infrastructure.integrations.factory import create_marzban_service, crea
 logger = logging.getLogger(__name__)
 
 _BACKUP_DIR_CANDIDATES = (
+    Path("/app/backups"),
     Path("backups"),
     Path("/opt/marzban-and-3x-ui-bot/backups"),
 )
@@ -119,12 +120,29 @@ class SystemStatusService:
     @staticmethod
     def _find_latest_backup() -> str | None:
         latest: Path | None = None
+        latest_mtime = 0.0
         for base in _BACKUP_DIR_CANDIDATES:
-            if not base.is_dir():
-                continue
-            for path in base.glob("vpn_bot_*.sql.gz"):
-                if latest is None or path.stat().st_mtime > latest.stat().st_mtime:
-                    latest = path
+            try:
+                if not base.is_dir():
+                    continue
+                for path in base.glob("*.sql.gz"):
+                    try:
+                        if not path.is_file():
+                            continue
+                        mtime = path.stat().st_mtime
+                        if latest is None or mtime > latest_mtime:
+                            latest = path
+                            latest_mtime = mtime
+                    except OSError as exc:
+                        logger.debug(
+                            "Skipping backup file",
+                            extra={"path": str(path), "error": str(exc)[:120]},
+                        )
+            except OSError as exc:
+                logger.debug(
+                    "Backup directory not readable",
+                    extra={"path": str(base), "error": str(exc)[:120]},
+                )
         if latest is None:
             return None
-        return str(latest)
+        return latest.name

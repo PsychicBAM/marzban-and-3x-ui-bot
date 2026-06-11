@@ -110,6 +110,8 @@ cd /opt/marzban-and-3x-ui-bot
 
 Creates `backups/vpn_bot_YYYYMMDD_HHMMSS.sql.gz` with mode `600`.
 
+The bot container mounts `./backups` as `/app/backups` (see `docker-compose.yml`) so **🩺 Статус системы** can read the latest `*.sql.gz` file.
+
 ### Scheduled backup (cron)
 
 Daily backup at 03:00 (adjust path if install dir differs):
@@ -125,7 +127,11 @@ sudo touch /var/log/keygate_backup.log
 sudo chmod 640 /var/log/keygate_backup.log
 ```
 
-The admin panel **🩺 Статус системы** shows the latest file in `backups/` when available.
+The admin panel **🩺 Статус системы** shows the latest `*.sql.gz` in `backups/` (mounted at `/app/backups` inside the bot container). After adding the volume, recreate the bot service:
+
+```bash
+docker compose up -d bot
+```
 
 ### Restore (destructive — overwrites current data)
 

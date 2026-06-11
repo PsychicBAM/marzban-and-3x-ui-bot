@@ -26,6 +26,7 @@ services:
         condition: service_healthy
     volumes:
       - ./alembic:/app/alembic:ro
+      - ./backups:/app/backups:ro
 
 volumes:
   postgres_data:
