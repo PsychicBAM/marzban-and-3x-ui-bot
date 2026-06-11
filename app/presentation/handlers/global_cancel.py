@@ -22,6 +22,9 @@ _SETTINGS_STATE_PREFIXES = (
     "PaymentSettingsStates:",
     "SupportSettingsStates:",
     "InstructionSettingsStates:",
+    "CustomerSupportStates:",
+    "AdminSupportStates:",
+    "AdminDailyReportStates:",
 )
 
 _CANCEL_FILTER = or_f(Command("cancel"), F.text.casefold() == "/cancel")

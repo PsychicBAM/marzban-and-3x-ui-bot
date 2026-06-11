@@ -9,35 +9,42 @@ MYVPN_QR_PREFIX = "myvpn:qr:"
 MYVPN_RENEW_PREFIX = "myvpn:renew:"
 MYVPN_SELECT_PREFIX = "myvpn:select:"
 MYVPN_HOME = "myvpn:home"
+MYVPN_HISTORY = "myvpn:history"
 
 
-def my_vpn_keyboard(account_id: int) -> InlineKeyboardMarkup:
+from app.presentation.i18n import t
+
+
+def my_vpn_keyboard(account_id: int, lang: str | None = None) -> InlineKeyboardMarkup:
+    code = lang or "ru"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🔗 Получить ссылку",
+                    text="🔗 Получить ссылку" if code == "ru" else "🔗 Get link",
                     callback_data=f"{MYVPN_LINKS_PREFIX}{account_id}",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="📷 Получить QR-code",
+                    text="📷 Получить QR-code" if code == "ru" else "📷 Get QR code",
                     callback_data=f"{MYVPN_QR_PREFIX}{account_id}",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="🔄 Продлить VPN",
+                    text="🔄 Продлить VPN" if code == "ru" else "🔄 Renew VPN",
                     callback_data=f"{MYVPN_RENEW_PREFIX}{account_id}",
                 )
             ],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data=MYVPN_HOME)],
+            [InlineKeyboardButton(text=t(code, "menu.history"), callback_data=MYVPN_HISTORY)],
+            [InlineKeyboardButton(text=t(code, "common.main_menu_short"), callback_data=MYVPN_HOME)],
         ],
     )
 
 
-def my_vpn_list_keyboard(items: list[CustomerVpnListItem]) -> InlineKeyboardMarkup:
+def my_vpn_list_keyboard(items: list[CustomerVpnListItem], lang: str | None = None) -> InlineKeyboardMarkup:
+    code = lang or "ru"
     rows: list[list[InlineKeyboardButton]] = []
     for item in items:
         suffix = " ⭐" if item.is_primary else ""
@@ -49,5 +56,6 @@ def my_vpn_list_keyboard(items: list[CustomerVpnListItem]) -> InlineKeyboardMark
                 ),
             ],
         )
-    rows.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data=MYVPN_HOME)])
+    rows.append([InlineKeyboardButton(text=t(code, "menu.history"), callback_data=MYVPN_HISTORY)])
+    rows.append([InlineKeyboardButton(text=t(code, "common.main_menu_short"), callback_data=MYVPN_HOME)])
     return InlineKeyboardMarkup(inline_keyboard=rows)

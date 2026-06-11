@@ -103,6 +103,46 @@ class AdminActionType(StrEnum):
     REFERRAL_REWARD_APPLIED = "referral_reward_applied"
     REFERRAL_REWARD_PENDING = "referral_reward_pending"
     REFERRAL_SETTINGS_UPDATED = "referral_settings_updated"
+    SUPPORT_TICKET_CREATED = "support_ticket_created"
+    SUPPORT_TICKET_REPLIED = "support_ticket_replied"
+    SUPPORT_TICKET_CLOSED = "support_ticket_closed"
+    SUPPORT_TICKET_REOPENED = "support_ticket_reopened"
+    ADMIN_DAILY_REPORT_SENT = "admin_daily_report_sent"
+    ADMIN_DAILY_REPORT_FAILED = "admin_daily_report_failed"
+    ADMIN_DAILY_REPORT_SETTINGS_UPDATED = "admin_daily_report_settings_updated"
+
+
+class CustomerEventType(StrEnum):
+    PURCHASE_CREATED = "purchase_created"
+    PAYMENT_APPROVED = "payment_approved"
+    VPN_CREATED = "vpn_created"
+    VPN_RENEWED = "vpn_renewed"
+    FREE_PLAN_ACTIVATED = "free_plan_activated"
+    PROMO_APPLIED = "promo_applied"
+    REFERRAL_REWARD_APPLIED = "referral_reward_applied"
+    ADMIN_MANUAL_RENEWAL = "admin_manual_renewal"
+    VPN_DISABLED = "vpn_disabled"
+    VPN_ENABLED = "vpn_enabled"
+    VPN_DELETED = "vpn_deleted"
+
+
+class SupportTicketStatus(StrEnum):
+    OPEN = "open"
+    ANSWERED = "answered"
+    CLOSED = "closed"
+
+
+class SupportTicketTopic(StrEnum):
+    PAYMENT = "payment"
+    CONNECTION = "connection"
+    RENEWAL = "renewal"
+    OTHER = "other"
+
+
+class SupportMessageSenderType(StrEnum):
+    CUSTOMER = "customer"
+    ADMIN = "admin"
+    SYSTEM = "system"
 
 
 class ReferralEventStatus(StrEnum):

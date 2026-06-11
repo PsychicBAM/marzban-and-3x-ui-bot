@@ -97,6 +97,9 @@ class UserService:
         user = await self._uow.users.set_language(user, code)
         return self._to_info(user)
 
+    async def get_user_by_telegram_id(self, telegram_id: int) -> User | None:
+        return await self._uow.users.get_by_telegram_id(telegram_id)
+
     async def _resolve_user(
         self,
         *,

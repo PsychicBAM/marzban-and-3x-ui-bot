@@ -133,6 +133,15 @@ The admin panel **🩺 Статус системы** shows the latest `*.sql.gz`
 docker compose up -d bot
 ```
 
+### Daily admin report
+
+The bot sends a health summary to `ADMIN_TELEGRAM_IDS` every day (default **09:00** in `TIMEZONE`).
+
+- Configure in admin panel: **🩺 Статус системы** → toggle, change time, or **📤 Отправить отчёт сейчас**
+- Settings are stored in `admin_report_settings` (migration `0011`)
+- Uses the same APScheduler instance as expiry notifications (`daily_admin_report` job)
+- After deploy: `alembic upgrade head` and `docker compose restart bot`
+
 ### Restore (destructive — overwrites current data)
 
 ```bash

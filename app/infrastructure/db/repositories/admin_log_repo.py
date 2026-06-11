@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.models.admin_log import AdminLog
@@ -27,3 +28,26 @@ class AdminLogRepository:
         await self._session.flush()
         await self._session.refresh(log)
         return log
+
+    async def list_for_customer_user(
+        self,
+        user_id: int,
+        action_types: tuple[str, ...],
+        *,
+        limit: int = 100,
+    ) -> list[AdminLog]:
+        stmt = (
+            select(AdminLog)
+            .where(AdminLog.action_type.in_(action_types))
+            .order_by(AdminLog.created_at.desc())
+            .limit(limit * 3)
+        )
+        result = await self._session.execute(stmt)
+        logs = []
+        for row in result.scalars().all():
+            details = row.details or {}
+            if details.get("user_id") == user_id:
+                logs.append(row)
+            if len(logs) >= limit:
+                break
+        return logs

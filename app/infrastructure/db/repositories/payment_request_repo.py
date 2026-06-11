@@ -264,3 +264,17 @@ class PaymentRequestRepository:
         await self._session.flush()
         await self._session.refresh(request)
         return request
+
+    async def list_history_by_user_id(self, user_id: int, *, limit: int = 200) -> list[PaymentRequest]:
+        stmt = (
+            select(PaymentRequest)
+            .where(PaymentRequest.user_id == user_id)
+            .options(
+                selectinload(PaymentRequest.plan),
+                selectinload(PaymentRequest.promo_code),
+            )
+            .order_by(PaymentRequest.created_at.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())

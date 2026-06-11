@@ -623,3 +623,28 @@ Installer: `bash <(curl -Ls https://raw.githubusercontent.com/PsychicBAM/marzban
 16. ✅ Referral program (`🎁 Рефералы`, migration `0009`)
 17. ✅ Customer i18n RU/EN (`🌐 Язык`, migration `0010`)
 18. ✅ GitHub release + one-command install (`install.sh`, `update.sh`, `backup.sh`, QA checklist)
+19. ✅ Customer history (`🧾 История`, migration `0011`)
+20. ✅ Support tickets (`🆘 Поддержка` / `🆘 Обращения`, migration `0011`)
+21. ✅ Daily admin report (APScheduler cron, `admin_report_settings`, migration `0011`)
+
+## Customer History (migration `0011`)
+
+- Menu: **🧾 История / History** (+ shortcut from **📊 Мой VPN**)
+- Aggregates: approved `payment_requests`, promo redemptions, referral rewards, safe `admin_logs`, optional `customer_events`
+- Pagination: 6 items per page, RU/EN via `t(lang, key)`
+
+## Support Tickets (migration `0011`)
+
+**Customer:** `🆘 Поддержка` → create ticket (topic + message/photo/file), my tickets, reply, close.
+
+**Admin:** `🆘 Обращения` → open / answered / closed lists, search by ID, reply (notifies customer), close/reopen, open client card.
+
+Tables: `support_tickets`, `support_messages`. Statuses: `open`, `answered`, `closed`.
+
+## Daily Admin Report (migration `0011`)
+
+- Default: enabled, 09:00 server timezone (`TIMEZONE` in `.env`)
+- Settings table: `admin_report_settings` (`is_enabled`, `report_hour`, `report_minute`)
+- APScheduler job `daily_admin_report` on the same scheduler as expiry notifications (no duplicate scheduler)
+- Admin UI inside **🩺 Статус системы**: toggle, change time, send now
+- Report: bot/DB/panels health, users, subscriptions, expiring/expired, pending payments, open tickets, referrals/promos/broadcasts today, revenue today/7d, last backup

@@ -3,13 +3,16 @@ from __future__ import annotations
 from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery, Message
 
+from app.application.services.customer_history_service import CustomerHistoryService
 from app.application.services.customer_vpn_service import CustomerVpnService
 from app.application.services.plan_service import PlanService
 from app.application.services.provisioning_notification_service import ProvisioningNotificationService
 from app.presentation.filters.customer_menu import menu_text_filter
 from app.presentation.i18n import t
 from app.presentation.keyboards.customer import customer_main_keyboard
+from app.presentation.keyboards.customer_history import history_keyboard
 from app.presentation.keyboards.my_vpn import (
+    MYVPN_HISTORY,
     MYVPN_HOME,
     MYVPN_LINKS_PREFIX,
     MYVPN_QR_PREFIX,
@@ -18,8 +21,9 @@ from app.presentation.keyboards.my_vpn import (
     my_vpn_keyboard,
     my_vpn_list_keyboard,
 )
+from app.application.services.user_service import UserService
 from app.presentation.handlers.customer.renewal import start_renewal_flow
-from app.presentation.services.customer_vpn_delivery import send_qr_codes_for_links
+from app.presentation.utils.html_format import CUSTOMER_PARSE_MODE
 
 router = Router(name="customer_my_vpn")
 
@@ -44,11 +48,11 @@ async def handle_my_vpn(message: Message, customer_vpn_service: CustomerVpnServi
             await message.answer(t(lang, "myvpn.no_vpn"), reply_markup=customer_main_keyboard(lang))
             return
         text = customer_vpn_service.format_overview_message(overview, lang=lang)
-        await message.answer(text, reply_markup=my_vpn_keyboard(overview.account_id))
+        await message.answer(text, reply_markup=my_vpn_keyboard(overview.account_id, lang))
         return
 
     text = customer_vpn_service.format_subscription_list_message(items, lang=lang)
-    await message.answer(text, reply_markup=my_vpn_list_keyboard(items))
+    await message.answer(text, reply_markup=my_vpn_list_keyboard(items, lang))
 
 
 @router.callback_query(F.data.startswith(MYVPN_SELECT_PREFIX))
@@ -76,7 +80,7 @@ async def handle_my_vpn_select(
         return
 
     text = customer_vpn_service.format_overview_message(overview, lang=lang)
-    await callback.message.answer(text, reply_markup=my_vpn_keyboard(overview.account_id))
+    await callback.message.answer(text, reply_markup=my_vpn_keyboard(overview.account_id, lang))
     await callback.answer()
 
 
@@ -174,6 +178,29 @@ async def handle_my_vpn_renew(
         customer_vpn_service=customer_vpn_service,
         lang=lang,
     )
+
+
+@router.callback_query(F.data == MYVPN_HISTORY)
+async def handle_my_vpn_history(
+    callback: CallbackQuery,
+    user_service: UserService,
+    customer_history_service: CustomerHistoryService,
+    lang: str,
+) -> None:
+    if callback.from_user is None or callback.message is None:
+        await callback.answer()
+        return
+    user = await user_service.get_user_by_telegram_id(callback.from_user.id)
+    if user is None:
+        await callback.answer(t(lang, "common.start_first"), show_alert=True)
+        return
+    text, page, pages = await customer_history_service.get_page(user.id, lang=lang, page=0)
+    await callback.message.answer(
+        text,
+        reply_markup=history_keyboard(lang, page=page, pages=pages),
+        parse_mode=CUSTOMER_PARSE_MODE,
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data == MYVPN_HOME)

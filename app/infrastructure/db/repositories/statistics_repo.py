@@ -19,6 +19,11 @@ from app.infrastructure.db.models.plan import Plan
 from app.infrastructure.db.models.user import User
 from app.infrastructure.db.models.vpn_account import VpnAccount
 from app.infrastructure.db.repositories.admin_customer_repo import AdminCustomerRepository
+from app.infrastructure.db.models.broadcast import Broadcast
+from app.infrastructure.db.models.promo_code import PromoCodeRedemption
+from app.infrastructure.db.models.referral import ReferralEvent
+from app.infrastructure.db.models.support_ticket import SupportTicket
+from app.domain.enums import BroadcastStatus, SupportTicketStatus
 
 
 class StatisticsRepository:
@@ -194,3 +199,35 @@ class StatisticsRepository:
             in_3_days=counts[3],
             in_7_days=counts[7],
         )
+
+    async def count_referrals_since(self, start_utc: datetime) -> int:
+        stmt = select(func.count()).select_from(ReferralEvent).where(ReferralEvent.created_at >= start_utc)
+        return int((await self._session.execute(stmt)).scalar_one())
+
+    async def count_promo_redemptions_since(self, start_utc: datetime) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(PromoCodeRedemption)
+            .where(PromoCodeRedemption.created_at >= start_utc)
+        )
+        return int((await self._session.execute(stmt)).scalar_one())
+
+    async def count_broadcasts_sent_since(self, start_utc: datetime) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(Broadcast)
+            .where(
+                Broadcast.status == BroadcastStatus.SENT.value,
+                Broadcast.sent_at.is_not(None),
+                Broadcast.sent_at >= start_utc,
+            )
+        )
+        return int((await self._session.execute(stmt)).scalar_one())
+
+    async def count_open_support_tickets(self) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(SupportTicket)
+            .where(SupportTicket.status == SupportTicketStatus.OPEN.value)
+        )
+        return int((await self._session.execute(stmt)).scalar_one())

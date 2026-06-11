@@ -155,6 +155,17 @@ class PromoCodeRepository:
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_redemptions_by_user_id(self, user_id: int, *, limit: int = 200) -> list[PromoCodeRedemption]:
+        stmt = (
+            select(PromoCodeRedemption)
+            .where(PromoCodeRedemption.user_id == user_id)
+            .options(selectinload(PromoCodeRedemption.promo_code))
+            .order_by(PromoCodeRedemption.created_at.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_stats(self) -> dict[str, int | Decimal]:
         total_codes = await self._session.scalar(select(func.count()).select_from(PromoCode))
         active_codes = await self._session.scalar(

@@ -21,6 +21,9 @@ from app.application.services.qr_code_service import QrCodeService
 from app.application.services.settings_service import SettingsService
 from app.application.services.statistics_service import StatisticsService
 from app.application.services.system_status_service import SystemStatusService
+from app.application.services.customer_history_service import CustomerHistoryService
+from app.application.services.daily_report_service import DailyReportService
+from app.application.services.support_ticket_service import SupportTicketService
 from app.application.services.referral_service import ReferralService
 from app.application.services.subscription_purchase_service import SubscriptionPurchaseService
 from app.application.services.user_service import UserService
@@ -108,6 +111,14 @@ class DatabaseMiddleware(BaseMiddleware):
             )
             data["statistics_service"] = StatisticsService(uow, settings)
             data["system_status_service"] = SystemStatusService(uow, settings)
+            data["customer_history_service"] = CustomerHistoryService(uow)
+            data["support_ticket_service"] = SupportTicketService(uow, settings, admin_log_service)
+            data["daily_report_service"] = DailyReportService(
+                uow,
+                settings,
+                data["system_status_service"],
+                admin_log_service,
+            )
             data["manual_provisioning_service"] = create_manual_provisioning_service(
                 uow,
                 settings,

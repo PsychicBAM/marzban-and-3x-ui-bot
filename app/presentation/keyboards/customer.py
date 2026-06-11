@@ -23,7 +23,10 @@ def customer_main_keyboard(lang: str | None = None) -> ReplyKeyboardMarkup:
                 KeyboardButton(text=t(code, "menu.invite_friend")),
                 KeyboardButton(text=t(code, "menu.promo_news")),
             ],
-            [KeyboardButton(text=t(code, "menu.language"))],
+            [
+                KeyboardButton(text=t(code, "menu.history")),
+                KeyboardButton(text=t(code, "menu.language")),
+            ],
         ],
         resize_keyboard=True,
         input_field_placeholder=t(code, "menu.placeholder"),

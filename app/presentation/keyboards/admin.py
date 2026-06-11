@@ -11,7 +11,7 @@ def admin_main_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="🩺 Статус системы")],
             [KeyboardButton(text="⚙️ Настройки")],
             [KeyboardButton(text="📣 Рассылки"), KeyboardButton(text="🎁 Промокоды")],
-            [KeyboardButton(text="🎁 Рефералы")],
+            [KeyboardButton(text="🎁 Рефералы"), KeyboardButton(text="🆘 Обращения")],
             [KeyboardButton(text="🏠 Главное меню")],
         ],
         resize_keyboard=True,
