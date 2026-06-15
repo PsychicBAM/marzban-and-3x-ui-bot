@@ -10,6 +10,7 @@
 secrets/
 private/
 
+
 # Python
 __pycache__/
 *.py[cod]
@@ -26,6 +27,7 @@ pip-wheel-metadata/
 .ruff_cache/
 .coverage
 htmlcov/
+
 
 # Logs
 logs/
@@ -75,5 +77,9 @@ Thumbs.db
 .cursor/memories/
 
 # Keep Cursor project rules if needed
-!.cursor/rules/
-!.cursor/rules/*.mdc
+.cursor/rules/
+.cursor/rules/*.mdc
+. c u r s o r / 
+.cursorignore
+ 
+ 
