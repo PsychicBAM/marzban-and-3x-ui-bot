@@ -4,9 +4,17 @@ from aiogram import F
 
 from app.presentation.i18n import all_menu_texts
 
+# Pre-submenu reply-keyboard labels kept for cached Telegram clients.
+LEGACY_MENU_LABELS: dict[str, tuple[str, ...]] = {
+    "menu.guide": ("ℹ️ Инструкция", "ℹ️ Instructions"),
+    "menu.history": ("🧾 История", "🧾 History"),
+    "menu.promo_news": ("🔔 Promotions & news",),
+}
+
 
 def menu_text_filter(key: str):
-    return F.text.in_(all_menu_texts(key))
+    legacy = LEGACY_MENU_LABELS.get(key, ())
+    return F.text.in_([*all_menu_texts(key), *legacy])
 
 
 # Legacy reply-keyboard labels (pre-guide rename)

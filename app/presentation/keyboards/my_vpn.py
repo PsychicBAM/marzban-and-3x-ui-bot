@@ -33,7 +33,7 @@ def my_vpn_keyboard(account_id: int, lang: str | None = None) -> InlineKeyboardM
             ],
             [
                 InlineKeyboardButton(
-                    text="🔄 Продлить VPN" if code == "ru" else "🔄 Renew VPN",
+                    text=t(code, "menu.renew_vpn"),
                     callback_data=f"{MYVPN_RENEW_PREFIX}{account_id}",
                 )
             ],

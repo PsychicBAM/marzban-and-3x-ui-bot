@@ -17,25 +17,36 @@ LANG_BACK = "lang:back"
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "ru": {
         "menu.buy_vpn": "🛒 Купить VPN",
-        "menu.renew_vpn": "🔄 Продлить VPN",
         "menu.my_vpn": "📊 Мой VPN",
+        "menu.help": "🆘 Помощь",
+        "menu.bonuses": "🎁 Бонусы",
+        "menu.more": "⚙️ Ещё",
+        "menu.renew_vpn": "🔄 Продлить VPN",
         "menu.guide": "📘 Инструкция",
         "menu.faq": "❓ FAQ",
         "menu.support": "🆘 Поддержка",
         "menu.invite_friend": "🎁 Пригласить друга",
         "menu.promo_news": "🔔 Акции и новости",
+        "menu.promo_codes": "🏷 Промокоды",
         "menu.language": "🌐 Язык",
-        "menu.history": "🧾 История",
+        "menu.history": "📜 История",
+        "menu.back": "🔙 Назад",
         "menu.placeholder": "Выберите действие",
+        "submenu.help.intro": "🆘 Помощь\nВыберите раздел:",
+        "submenu.bonuses.intro": "🎁 Бонусы\nЗдесь находятся скидки, рефералы и новости.",
+        "submenu.bonuses.promo_codes_info": (
+            "Промокод можно ввести во время покупки или продления VPN."
+        ),
+        "submenu.more.intro": "⚙️ Ещё\nДополнительные разделы:",
         "start.greeting": (
             "Здравствуйте, {first_name}!\n\n"
             "Добро пожаловать в KeyGate VPN — быстрый и стабильный доступ к интернету.\n\n"
             "Что можно сделать:\n"
             "🛒 Купить VPN — выбрать тариф и оформить подписку\n"
-            "📊 Мой VPN — ссылки, QR-код и статус подписки\n"
-            "🔄 Продлить VPN — продлить действующую подписку\n"
-            "🎁 Пригласить друга — бонусы за рефералов\n"
-            "🆘 Поддержка — связаться с нами\n\n"
+            "📊 Мой VPN — ссылки, QR-код, продление и статус подписки\n"
+            "🆘 Помощь — инструкция, FAQ и поддержка\n"
+            "🎁 Бонусы — рефералы, акции и промокоды\n"
+            "⚙️ Ещё — история и язык\n\n"
             "Выберите действие в меню ниже."
         ),
         "start.banner_caption": "👋 KeyGate VPN",
@@ -47,7 +58,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "lang.back": "🔙 Назад",
         "lang.russian": "🇷🇺 Русский",
         "lang.english": "🇬🇧 English",
-        "history.title": "🧾 История",
+        "history.title": "📜 История",
         "history.empty": "История пока пустая.",
         "history.page": "Стр. {current}/{total}",
         "history.date": "Дата: {date}",
@@ -353,25 +364,36 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "en": {
         "menu.buy_vpn": "🛒 Buy VPN",
-        "menu.renew_vpn": "🔄 Renew VPN",
         "menu.my_vpn": "📊 My VPN",
+        "menu.help": "🆘 Help",
+        "menu.bonuses": "🎁 Bonuses",
+        "menu.more": "⚙️ More",
+        "menu.renew_vpn": "🔄 Renew VPN",
         "menu.guide": "📘 Guide",
         "menu.faq": "❓ FAQ",
         "menu.support": "🆘 Support",
         "menu.invite_friend": "🎁 Invite a friend",
-        "menu.promo_news": "🔔 Promotions & news",
+        "menu.promo_news": "🔔 News and offers",
+        "menu.promo_codes": "🏷 Promo codes",
         "menu.language": "🌐 Language",
-        "menu.history": "🧾 History",
+        "menu.history": "📜 History",
+        "menu.back": "🔙 Back",
         "menu.placeholder": "Choose an action",
+        "submenu.help.intro": "🆘 Help\nChoose a section:",
+        "submenu.bonuses.intro": "🎁 Bonuses\nDiscounts, referrals, and news are here.",
+        "submenu.bonuses.promo_codes_info": (
+            "You can enter a promo code during VPN purchase or renewal."
+        ),
+        "submenu.more.intro": "⚙️ More\nAdditional sections:",
         "start.greeting": (
             "Hello, {first_name}!\n\n"
             "Welcome to KeyGate VPN — fast and reliable internet access.\n\n"
             "What you can do:\n"
             "🛒 Buy VPN — choose a plan and subscribe\n"
-            "📊 My VPN — links, QR code, and subscription status\n"
-            "🔄 Renew VPN — extend your active subscription\n"
-            "🎁 Invite a friend — earn referral bonuses\n"
-            "🆘 Support — contact us\n\n"
+            "📊 My VPN — links, QR code, renewal, and subscription status\n"
+            "🆘 Help — guide, FAQ, and support\n"
+            "🎁 Bonuses — referrals, offers, and promo codes\n"
+            "⚙️ More — history and language\n\n"
             "Choose an action from the menu below."
         ),
         "start.banner_caption": "👋 KeyGate VPN",
@@ -383,7 +405,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "lang.back": "🔙 Back",
         "lang.russian": "🇷🇺 Русский",
         "lang.english": "🇬🇧 English",
-        "history.title": "🧾 History",
+        "history.title": "📜 History",
         "history.empty": "Your history is empty.",
         "history.page": "Page {current}/{total}",
         "history.date": "Date: {date}",
