@@ -130,10 +130,12 @@ class PaymentApprovalService:
                 },
             )
             admin_message = result.admin_message()
+            notify_customer = result.has_customer_links()
+            customer_message = result.customer_message() if notify_customer else ""
             return ApprovalOutcome(
                 provisioning=result,
-                notify_customer=False,
-                customer_message="",
+                notify_customer=notify_customer,
+                customer_message=customer_message,
                 admin_message=admin_message,
                 success=False,
                 partial=True,
@@ -186,4 +188,100 @@ class PaymentApprovalService:
             request_id=request.id,
             telegram_id=user.telegram_id,
             referral_notifications=referral_notifications,
+        )
+
+    async def retry_provisioning_for_request(
+        self,
+        request_id: int,
+        *,
+        admin_telegram_id: int,
+    ) -> ApprovalOutcome:
+        request = await self._uow.payment_requests.get_by_id_with_relations(request_id)
+        if request is None:
+            raise PaymentRequestNotFoundError("Заявка не найдена.")
+        if request.status != PaymentRequestStatus.PROVISIONING_PARTIAL.value:
+            raise PaymentRequestAlreadyProcessedError("Повтор доступен только для частичной выдачи VPN.")
+
+        user = request.user
+        if user is None:
+            raise PaymentRequestNotFoundError("Пользователь заявки не найден.")
+
+        try:
+            result = await self._provisioning.retry_provisioning_for_payment_request(request)
+        except VpnProvisioningError as exc:
+            await self._uow.payment_requests.mark_provisioning_partial(
+                request,
+                error_message=exc.message,
+                vpn_account_id=request.vpn_account_id,
+            )
+            await self._admin_log.log(
+                admin_telegram_id=admin_telegram_id,
+                action=AdminActionType.VPN_PROVISIONING_FAILED,
+                details={"payment_request_id": request.id, "retry": True, "error": exc.message},
+            )
+            return ApprovalOutcome(
+                provisioning=None,
+                notify_customer=False,
+                customer_message="",
+                admin_message=(
+                    f"⚠️ Повтор выдачи для заявки #{request.id} не удался.\n"
+                    f"Причина: {exc.message}"
+                ),
+                success=False,
+                partial=True,
+                failed=True,
+                request_id=request.id,
+                telegram_id=user.telegram_id,
+                referral_notifications=[],
+            )
+
+        if result.partial:
+            error_summary = "; ".join(
+                item.error or "ошибка" for item in result.panel_results if not item.success
+            )
+            await self._uow.payment_requests.mark_provisioning_partial(
+                request,
+                error_message=error_summary,
+                vpn_account_id=result.vpn_account_id,
+            )
+            admin_message = result.admin_message()
+            notify_customer = result.has_customer_links()
+            return ApprovalOutcome(
+                provisioning=result,
+                notify_customer=notify_customer,
+                customer_message=result.customer_message() if notify_customer else "",
+                admin_message=admin_message,
+                success=False,
+                partial=True,
+                failed=False,
+                request_id=request.id,
+                telegram_id=user.telegram_id,
+                referral_notifications=[],
+            )
+
+        await self._uow.payment_requests.mark_provisioning_completed(request)
+        if result.vpn_account_id is not None:
+            await self._uow.payment_requests.link_vpn_account(request, result.vpn_account_id)
+
+        await self._admin_log.log(
+            admin_telegram_id=admin_telegram_id,
+            action=AdminActionType.VPN_PROVISIONED,
+            details={
+                "payment_request_id": request.id,
+                "vpn_account_id": result.vpn_account_id,
+                "retry": True,
+            },
+        )
+
+        return ApprovalOutcome(
+            provisioning=result,
+            notify_customer=True,
+            customer_message=result.customer_message(),
+            admin_message=result.admin_message(),
+            success=True,
+            partial=False,
+            failed=False,
+            request_id=request.id,
+            telegram_id=user.telegram_id,
+            referral_notifications=[],
         )

@@ -247,6 +247,10 @@ class PaymentRequestService:
         requests = await self._uow.payment_requests.list_pending_with_relations()
         return [self._to_info(item) for item in requests]
 
+    async def list_partial_provisioning_requests(self) -> list[PaymentRequestInfo]:
+        requests = await self._uow.payment_requests.list_partial_provisioning_with_relations()
+        return [self._to_info(item) for item in requests]
+
     async def get_request(self, request_id: int) -> PaymentRequestInfo:
         request = await self._uow.payment_requests.get_by_id_with_relations(request_id)
         if request is None:
@@ -353,6 +357,21 @@ class PaymentRequestService:
                 f"🆔 <code>{item.telegram_id}</code>\n"
                 f"📦 {item.plan_name} · {amount_line} · {duration} дн.\n"
                 f"📱 {devices} · 🕐 {created}"
+            )
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    def format_partial_provisioning_list(self, requests: list[PaymentRequestInfo]) -> str:
+        if not requests:
+            return "📭 Частичных выдач нет."
+
+        lines = ["⚠️ <b>Частичная выдача VPN</b>", ""]
+        for item in requests:
+            username = f"@{item.username}" if item.username else "—"
+            lines.append(
+                f"<b>#{item.id}</b>\n"
+                f"👤 {item.user_full_name} ({username})\n"
+                f"📦 {item.plan_name} · VPN ID: {item.vpn_account_id or '—'}"
             )
             lines.append("")
         return "\n".join(lines).strip()

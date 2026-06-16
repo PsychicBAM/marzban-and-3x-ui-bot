@@ -20,8 +20,11 @@ from app.presentation.keyboards.payment_requests import (
     CB_APPROVE_PREFIX,
     CB_LIST,
     CB_OPEN_PREFIX,
+    CB_PARTIAL_LIST,
     CB_REJECT_PREFIX,
+    CB_RETRY_PREFIX,
     empty_requests_keyboard,
+    partial_requests_keyboard,
     pending_requests_keyboard,
     request_details_keyboard,
 )
@@ -70,7 +73,7 @@ async def handle_open_request(
         return
 
     text = payment_request_service.format_request_details(item)
-    await callback.message.edit_text(text, reply_markup=request_details_keyboard(item.id))
+    await callback.message.edit_text(text, reply_markup=request_details_keyboard(item.id, status=item.status))
 
     caption = payment_request_service.format_receipt_caption(item)
     if item.receipt_file_type == ReceiptFileType.PHOTO.value and item.receipt_file_id:
@@ -96,6 +99,69 @@ async def handle_approve_request(
         provisioning_notification_service,
         admin_log_service,
     )
+
+
+@router.callback_query(F.data == CB_PARTIAL_LIST)
+async def handle_partial_requests_list(
+    callback: CallbackQuery,
+    payment_request_service: PaymentRequestService,
+) -> None:
+    await _send_partial_list(callback, payment_request_service)
+
+
+@router.callback_query(F.data.startswith(CB_RETRY_PREFIX))
+async def handle_retry_provisioning(
+    callback: CallbackQuery,
+    bot: Bot,
+    payment_approval_service: PaymentApprovalService,
+    provisioning_notification_service: ProvisioningNotificationService,
+    admin_log_service: AdminLogService,
+) -> None:
+    if callback.data is None or callback.from_user is None or callback.message is None:
+        await callback.answer()
+        return
+
+    request_id = _parse_id(callback.data, CB_RETRY_PREFIX)
+    if request_id is None:
+        await callback.answer("Некорректная заявка.", show_alert=True)
+        return
+
+    try:
+        outcome = await payment_approval_service.retry_provisioning_for_request(
+            request_id,
+            admin_telegram_id=callback.from_user.id,
+        )
+    except PaymentRequestAlreadyProcessedError as exc:
+        await callback.answer(exc.message, show_alert=True)
+        return
+    except PaymentRequestNotFoundError as exc:
+        await callback.answer(exc.message, show_alert=True)
+        return
+
+    admin_text = outcome.admin_message
+    if outcome.notify_customer and outcome.provisioning is not None:
+        try:
+            qr_admin_note = await deliver_provisioning_to_customer(
+                bot,
+                telegram_id=outcome.telegram_id,
+                customer_message=outcome.customer_message,
+                provisioning=outcome.provisioning,
+                notification_service=provisioning_notification_service,
+                admin_log_service=admin_log_service,
+                admin_telegram_id=callback.from_user.id,
+                payment_request_id=outcome.request_id,
+            )
+            admin_text += qr_admin_note
+        except Exception:
+            admin_text += "\n⚠️ Не удалось уведомить клиента в Telegram."
+    elif outcome.failed:
+        await callback.answer("Повтор не удался. См. сообщение ниже.", show_alert=True)
+    elif outcome.partial:
+        await callback.answer("Частичная выдача VPN.", show_alert=True)
+
+    await callback.message.answer(admin_text, reply_markup=admin_main_keyboard())
+    if not outcome.failed and not outcome.partial:
+        await callback.answer("VPN довыдан.")
 
 
 @router.callback_query(F.data.startswith(CB_REJECT_PREFIX))
@@ -125,6 +191,21 @@ async def _send_pending_list(
         return
 
     await target.answer(text, reply_markup=keyboard)
+
+
+async def _send_partial_list(
+    target: CallbackQuery,
+    payment_request_service: PaymentRequestService,
+) -> None:
+    requests = await payment_request_service.list_partial_provisioning_requests()
+    text = payment_request_service.format_partial_provisioning_list(requests)
+    keyboard = partial_requests_keyboard(requests) if requests else empty_requests_keyboard()
+
+    if target.message is None:
+        await target.answer()
+        return
+    await target.message.edit_text(text, reply_markup=keyboard)
+    await target.answer()
 
 
 async def _process_approval(

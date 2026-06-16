@@ -100,6 +100,7 @@ class VpnProvisioningService:
         panel_results: list[PanelProvisionResult] = []
         marzban_data: dict[str, str | None] = {}
         xui_data: dict[str, str | None] = {}
+        create_new_panel_account = new_db_record or renewal_candidate is None
 
         for panel in panels:
             try:
@@ -109,29 +110,27 @@ class VpnProvisioningService:
                         expiry_at=expiry_at,
                         plan=plan,
                         existing=renewal_candidate,
-                        create_new_panel_account=new_db_record or not renewal_candidate,
+                        create_new_panel_account=create_new_panel_account,
                         reenable=action == ProvisionAction.RENEW_REENABLE_DISABLED,
                     )
-                    marzban_data = {
-                        "username": account_name,
-                        "subscription_url": result.subscription_url,
-                        "status": "active",
-                    }
+                    if result.success:
+                        marzban_data = self._marzban_fields_from_result(result, account_name)
                 elif panel == PanelType.XUI.value:
                     result = await self._provision_xui(
                         account_name=account_name,
                         expiry_at=expiry_at,
                         plan=plan,
                         existing=renewal_candidate,
-                        create_new_panel_account=new_db_record or not renewal_candidate,
+                        create_new_panel_account=create_new_panel_account,
                         reenable=action == ProvisionAction.RENEW_REENABLE_DISABLED,
                     )
-                    xui_data = {
-                        "client_uuid": result.external_id,
-                        "email": account_name,
-                        "subscription_url": result.subscription_url,
-                        "status": "active",
-                    }
+                    if result.success:
+                        xui_data = {
+                            "client_uuid": result.external_id,
+                            "email": account_name,
+                            "subscription_url": result.subscription_url,
+                            "status": "active",
+                        }
                 else:
                     continue
                 panel_results.append(result)
@@ -226,6 +225,166 @@ class VpnProvisioningService:
         subscription_links = {key: value for key, value in subscription_links.items() if value}
 
         partial = bool(failures)
+        self._log_provision_persist(
+            payment_request_id=request.id,
+            vpn_account_id=vpn_account.id,
+            marzban_data=marzban_data,
+            xui_data=xui_data,
+        )
+        return ProvisioningResult(
+            success=not partial,
+            partial=partial,
+            failed=False,
+            vpn_account_id=vpn_account.id,
+            vpn_account_name=account_name,
+            plan_name=plan.name,
+            expiry_at=expiry_at,
+            traffic_limit_gb=plan.traffic_limit_gb,
+            ip_limit=plan.ip_limit,
+            action=action,
+            panel_results=panel_results,
+            subscription_links=subscription_links,
+        )
+
+    async def retry_provisioning_for_payment_request(self, request: PaymentRequest) -> ProvisioningResult:
+        """Fill missing panel fields for a partially provisioned payment request."""
+        user = request.user
+        plan = request.plan
+        if user is None or plan is None:
+            raise VpnProvisioningError("Данные заявки неполные.")
+        if request.vpn_account_id is None:
+            raise VpnProvisioningError("VPN-аккаунт не привязан к заявке.")
+
+        vpn_account = await self._uow.vpn_accounts.get_by_id(request.vpn_account_id)
+        if vpn_account is None:
+            raise VpnProvisioningError("VPN-аккаунт не найден.")
+
+        account_name = vpn_account.vpn_account_name
+        now = datetime.now(UTC)
+        duration_days = plan.duration_days + (request.extra_days_from_promo or 0)
+        expiry_at, action = ExpiryCalculator.calculate(
+            now=now,
+            duration_days=duration_days,
+            account=vpn_account,
+        )
+
+        panels = self._panels_for_plan(plan)
+        if not panels:
+            raise VpnProvisioningError("Тариф не настроен для выдачи VPN.")
+
+        panel_results: list[PanelProvisionResult] = []
+        marzban_data: dict[str, str | None] = {}
+        xui_data: dict[str, str | None] = {}
+
+        for panel in panels:
+            try:
+                if panel == PanelType.MARZBAN.value:
+                    if self._marzban_panel_complete(vpn_account):
+                        result = PanelProvisionResult(
+                            panel="Marzban",
+                            success=True,
+                            created=False,
+                            subscription_url=vpn_account.marzban_subscription_url,
+                            external_id=vpn_account.marzban_username or account_name,
+                        )
+                    else:
+                        result = await self._provision_marzban(
+                            account_name=account_name,
+                            expiry_at=expiry_at,
+                            plan=plan,
+                            existing=vpn_account,
+                            create_new_panel_account=not bool(vpn_account.marzban_username),
+                            reenable=False,
+                        )
+                    if result.success:
+                        marzban_data = self._marzban_fields_from_result(result, account_name)
+                elif panel == PanelType.XUI.value:
+                    if self._xui_panel_complete(vpn_account):
+                        result = PanelProvisionResult(
+                            panel="3x-ui",
+                            success=True,
+                            created=False,
+                            subscription_url=vpn_account.xui_subscription_url,
+                            external_id=vpn_account.xui_client_uuid,
+                        )
+                    else:
+                        result = await self._provision_xui(
+                            account_name=account_name,
+                            expiry_at=expiry_at,
+                            plan=plan,
+                            existing=vpn_account,
+                            create_new_panel_account=not bool(vpn_account.xui_email),
+                            reenable=False,
+                        )
+                    if result.success:
+                        xui_data = {
+                            "client_uuid": result.external_id,
+                            "email": account_name,
+                            "subscription_url": result.subscription_url,
+                            "status": "active",
+                        }
+                else:
+                    continue
+                panel_results.append(result)
+            except VpnPanelConflictError as exc:
+                panel_results.append(
+                    PanelProvisionResult(
+                        panel=panel,
+                        success=False,
+                        created=False,
+                        error=f"Конфликт имени: {exc.message}",
+                    ),
+                )
+            except VpnPanelError as exc:
+                logger.warning(
+                    "Panel retry provisioning failed",
+                    extra={"panel": panel, "error": exc.message, "payment_request_id": request.id},
+                )
+                panel_results.append(
+                    PanelProvisionResult(
+                        panel=panel,
+                        success=False,
+                        created=False,
+                        error=exc.message,
+                    ),
+                )
+
+        successes = [item for item in panel_results if item.success]
+        failures = [item for item in panel_results if not item.success]
+        if not successes:
+            errors = "; ".join(item.error or "ошибка" for item in failures)
+            raise VpnProvisioningError(f"Не удалось довыдать VPN: {errors}")
+
+        status = VpnAccountStatus.ACTIVE.value
+        vpn_account = await self._uow.vpn_accounts.update_provision(
+            vpn_account,
+            plan_id=plan.id,
+            expiry_date=expiry_at,
+            traffic_limit_gb=plan.traffic_limit_gb,
+            ip_limit=plan.ip_limit,
+            status=status,
+            marzban_username=marzban_data.get("username"),
+            marzban_subscription_url=marzban_data.get("subscription_url"),
+            marzban_status=marzban_data.get("status"),
+            xui_client_uuid=xui_data.get("client_uuid"),
+            xui_email=xui_data.get("email"),
+            xui_subscription_url=xui_data.get("subscription_url"),
+            xui_status=xui_data.get("status"),
+        )
+
+        subscription_links = {
+            "Marzban": marzban_data.get("subscription_url") or vpn_account.marzban_subscription_url or "",
+            "3x-ui": xui_data.get("subscription_url") or vpn_account.xui_subscription_url or "",
+        }
+        subscription_links = {key: value for key, value in subscription_links.items() if value}
+
+        partial = bool(failures)
+        self._log_provision_persist(
+            payment_request_id=request.id,
+            vpn_account_id=vpn_account.id,
+            marzban_data=marzban_data,
+            xui_data=xui_data,
+        )
         return ProvisioningResult(
             success=not partial,
             partial=partial,
@@ -254,29 +413,42 @@ class VpnProvisioningService:
         if self._marzban is None:
             raise VpnProvisioningError("Marzban не включён в настройках.")
 
-        has_existing = (
+        renew_on_db_account = (
             existing is not None
             and not create_new_panel_account
-            and existing.marzban_username
+            and bool(existing.marzban_username)
             and existing.status != VpnAccountStatus.DELETED.value
         )
 
-        if has_existing and existing is not None:
-            username = existing.marzban_username or account_name
-            await self._marzban.update_user(
-                username=username,
+        if renew_on_db_account and existing is not None:
+            panel_username = existing.marzban_username or account_name
+            info = await self._marzban.update_user(
+                username=panel_username,
                 expire_at=expiry_at,
                 data_limit_gb=plan.traffic_limit_gb,
                 ip_limit=plan.ip_limit,
                 enable=True,
             )
-            link = await self._marzban.get_subscription_link(username)
-            return PanelProvisionResult(
-                panel="Marzban",
-                success=True,
+            return await self._finalize_marzban_panel_result(
+                username=info.username,
+                subscription_url=info.subscription_url,
                 created=False,
-                subscription_url=link,
-                external_id=username,
+            )
+
+        panel_user = await self._marzban.get_user(account_name)
+        if panel_user is not None:
+            logger.info("Marzban existing user reused", extra={"username": account_name})
+            info = await self._marzban.update_user(
+                username=panel_user.username,
+                expire_at=expiry_at,
+                data_limit_gb=plan.traffic_limit_gb,
+                ip_limit=plan.ip_limit,
+                enable=True,
+            )
+            return await self._finalize_marzban_panel_result(
+                username=info.username,
+                subscription_url=info.subscription_url,
+                created=False,
             )
 
         try:
@@ -288,32 +460,100 @@ class VpnProvisioningService:
             )
         except VpnPanelConflictError:
             panel_user = await self._marzban.get_user(account_name)
-            if panel_user and existing and existing.marzban_username == account_name:
-                info = await self._marzban.update_user(
-                    username=account_name,
-                    expire_at=expiry_at,
-                    data_limit_gb=plan.traffic_limit_gb,
-                    ip_limit=plan.ip_limit,
-                    enable=True,
-                )
-                return PanelProvisionResult(
-                    panel="Marzban",
-                    success=True,
-                    created=False,
-                    subscription_url=info.subscription_url,
-                    external_id=info.username,
-                )
-            raise
+            if panel_user is None:
+                raise
+            logger.info("Marzban existing user reused after conflict", extra={"username": account_name})
+            info = await self._marzban.update_user(
+                username=panel_user.username,
+                expire_at=expiry_at,
+                data_limit_gb=plan.traffic_limit_gb,
+                ip_limit=plan.ip_limit,
+                enable=True,
+            )
+            return await self._finalize_marzban_panel_result(
+                username=info.username,
+                subscription_url=info.subscription_url,
+                created=False,
+            )
 
         if reenable:
             logger.info("Marzban account enabled after disabled renewal", extra={"username": account_name})
 
+        return await self._finalize_marzban_panel_result(
+            username=info.username,
+            subscription_url=info.subscription_url,
+            created=True,
+        )
+
+    async def _finalize_marzban_panel_result(
+        self,
+        *,
+        username: str,
+        subscription_url: str | None,
+        created: bool,
+    ) -> PanelProvisionResult:
+        url = (subscription_url or "").strip() or None
+        if not url and self._marzban is not None:
+            url = await self._marzban.get_subscription_link(username)
+            url = (url or "").strip() or None
+        if not url:
+            return PanelProvisionResult(
+                panel="Marzban",
+                success=False,
+                created=created,
+                external_id=username,
+                error="Marzban: пользователь обновлён, но ссылка подписки недоступна",
+            )
         return PanelProvisionResult(
             panel="Marzban",
             success=True,
-            created=True,
-            subscription_url=info.subscription_url,
-            external_id=info.username,
+            created=created,
+            subscription_url=url,
+            external_id=username,
+        )
+
+    @staticmethod
+    def _marzban_fields_from_result(result: PanelProvisionResult, fallback_name: str) -> dict[str, str | None]:
+        return {
+            "username": result.external_id or fallback_name,
+            "subscription_url": result.subscription_url,
+            "status": "active",
+        }
+
+    @staticmethod
+    def _marzban_panel_complete(account: VpnAccount) -> bool:
+        return bool(
+            (account.marzban_username or "").strip()
+            and (account.marzban_subscription_url or "").strip()
+            and account.marzban_status == VpnAccountStatus.ACTIVE.value,
+        )
+
+    @staticmethod
+    def _xui_panel_complete(account: VpnAccount) -> bool:
+        return bool(
+            (account.xui_email or "").strip()
+            and (account.xui_subscription_url or "").strip()
+            and account.xui_status == VpnAccountStatus.ACTIVE.value,
+        )
+
+    @staticmethod
+    def _log_provision_persist(
+        *,
+        payment_request_id: int,
+        vpn_account_id: int,
+        marzban_data: dict[str, str | None],
+        xui_data: dict[str, str | None],
+    ) -> None:
+        logger.info(
+            "vpn_provision_persist",
+            extra={
+                "payment_request_id": payment_request_id,
+                "vpn_account_id": vpn_account_id,
+                "marzban_username_present": "yes" if marzban_data.get("username") else "no",
+                "marzban_url_present": "yes" if marzban_data.get("subscription_url") else "no",
+                "xui_url_present": "yes" if xui_data.get("subscription_url") else "no",
+                "account_saved": "yes",
+            },
         )
 
     async def _provision_xui(

@@ -141,10 +141,10 @@ class FreePlanActivationService:
                 partial=True,
                 failed=False,
                 provisioning=result,
-                customer_message=FREE_ACTIVATION_PARTIAL,
+                customer_message=result.customer_message(free=True) if result.has_customer_links() else FREE_ACTIVATION_PARTIAL,
                 request_id=request.id,
                 telegram_id=telegram_id,
-                notify_customer=False,
+                notify_customer=result.has_customer_links(),
             )
 
         if result.vpn_account_id is not None:

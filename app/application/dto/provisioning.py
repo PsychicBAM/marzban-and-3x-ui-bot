@@ -81,4 +81,13 @@ class ProvisioningResult:
                 lines.append(f"❌ {result.panel}: {result.error or 'ошибка'}")
         if self.partial:
             lines.append("\n⚠️ Частичная выдача: не все панели настроены.")
+            marzban_ok = any(result.panel == "Marzban" and result.success for result in self.panel_results)
+            xui_ok = any(result.panel == "3x-ui" and result.success for result in self.panel_results)
+            if xui_ok and not marzban_ok:
+                lines.append("⚠️ Ссылка Marzban не сохранена — клиенту можно отправить только 3x-ui.")
+            elif marzban_ok and not xui_ok:
+                lines.append("⚠️ Ссылка 3x-ui не сохранена — клиенту можно отправить только Marzban.")
         return "\n".join(lines)
+
+    def has_customer_links(self) -> bool:
+        return bool(self.subscription_links)

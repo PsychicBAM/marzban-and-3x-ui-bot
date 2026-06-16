@@ -141,10 +141,10 @@ class PromoActivationService:
                 partial=True,
                 failed=False,
                 provisioning=result,
-                customer_message=ACTIVATION_PARTIAL,
+                customer_message=result.customer_message() if result.has_customer_links() else ACTIVATION_PARTIAL,
                 request_id=request.id,
                 telegram_id=telegram_id,
-                notify_customer=False,
+                notify_customer=result.has_customer_links(),
                 referral_notifications=[],
             )
 

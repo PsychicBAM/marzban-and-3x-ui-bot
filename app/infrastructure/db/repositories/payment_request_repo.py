@@ -258,6 +258,28 @@ class PaymentRequestRepository:
         await self._session.refresh(request)
         return request
 
+    async def mark_provisioning_completed(self, request: PaymentRequest) -> PaymentRequest:
+        request.status = PaymentRequestStatus.APPROVED.value
+        request.provisioning_error = None
+        await self._session.flush()
+        await self._session.refresh(request)
+        return request
+
+    async def list_partial_provisioning_with_relations(self) -> list[PaymentRequest]:
+        stmt = (
+            select(PaymentRequest)
+            .where(PaymentRequest.status == PaymentRequestStatus.PROVISIONING_PARTIAL.value)
+            .options(
+                selectinload(PaymentRequest.user),
+                selectinload(PaymentRequest.plan),
+                selectinload(PaymentRequest.vpn_account),
+                selectinload(PaymentRequest.promo_code),
+            )
+            .order_by(PaymentRequest.processed_at.desc(), PaymentRequest.id.desc())
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
     async def link_vpn_account(self, request: PaymentRequest, vpn_account_id: int) -> PaymentRequest:
         request.vpn_account_id = vpn_account_id
         request.provisioning_error = None
