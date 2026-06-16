@@ -89,7 +89,7 @@ class ExpiryNotificationService:
         await bot.send_message(
             admin_telegram_id,
             sample,
-            reply_markup=customer_main_keyboard(),
+            reply_markup=customer_main_keyboard("ru"),
         )
         await self._admin_log.log(
             admin_telegram_id=admin_telegram_id,

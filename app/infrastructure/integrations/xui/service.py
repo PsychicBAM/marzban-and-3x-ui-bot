@@ -273,6 +273,24 @@ class XuiService(XuiPort):
             await self._client.add_client_raw(self._client.inbound_id, client_payload)
         except VpnPanelConflictError:
             return await self._reuse_existing_client(account_name=account_name, data=data)
+
+        inbound_after = await self._client.get_inbound_raw(self._client.inbound_id)
+        if inbound_after is None or find_client_in_inbound(inbound_after, account_name) is None:
+            from app.infrastructure.integrations.xui.inbound_mutations import count_clients_in_inbound
+
+            clients_after, settings_parsed = count_clients_in_inbound(inbound_after)
+            protocol = str(inbound.get("protocol") or "")
+            raise VpnPanelNotFoundError(
+                "3x-ui client create verification failed: "
+                f"inbound_id={self._client.inbound_id}; "
+                f"target_email={account_name}; "
+                f"protocol={protocol}; "
+                f"clients_after={clients_after}; "
+                f"settings_parsed={settings_parsed}; "
+                f"add_method={self._client.last_client_add_method or 'unknown'}",
+                panel="xui",
+            )
+
         logger.info("3x-ui client created", extra={"email": account_name, "uuid": client_uuid})
         subscription_url = build_subscription_url(
             sub_id=sub_id,

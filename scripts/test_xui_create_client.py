@@ -32,9 +32,11 @@ from app.infrastructure.integrations.factory import create_xui_service
 from app.infrastructure.integrations.xui.client import ADD_CLIENT_PATH, XuiApiClient
 from app.infrastructure.integrations.xui.inbound_mutations import (
     ClientDeleteCriteria,
+    count_clients_in_inbound,
     find_client_matching_delete_criteria,
     inbound_display_name,
     inbound_id_value,
+    parse_settings_field,
     read_panel_bool,
     read_panel_int,
 )
@@ -90,8 +92,48 @@ async def _verify_client_absent(service, email: str) -> None:
 async def _load_client_state(service, email: str):
     info = await service.get_client(email)
     if info is None:
+        await _print_inbound_diagnostics(service, email)
         raise SystemExit(f"FAIL: client '{email}' not found on panel")
     return info
+
+
+async def _print_inbound_diagnostics(service, email: str) -> None:
+    api_client = service._client  # noqa: SLF001
+    inbound_id = api_client.inbound_id
+    inbound = await api_client.get_inbound_raw(inbound_id)
+    if inbound is None:
+        print(f"Diagnostics: inbound #{inbound_id} not found via GET")
+        return
+    clients_count, settings_parsed = count_clients_in_inbound(inbound)
+    protocol = str(inbound.get("protocol") or "unknown")
+    print("Diagnostics:")
+    print(f"  inbound_id={inbound_id}")
+    print(f"  protocol={protocol}")
+    print(f"  remark={inbound_display_name(inbound)}")
+    print(f"  clients_in_settings={clients_count}")
+    print(f"  settings_parsed_ok={settings_parsed}")
+    print(f"  add_method={api_client.last_client_add_method or 'unknown'}")
+    criteria = ClientDeleteCriteria(email=email)
+    client = find_client_matching_delete_criteria(inbound, criteria)
+    if client is None:
+        print(f"  target_email={email} found_in_inbound=False")
+        if settings_parsed:
+            settings_obj = parse_settings_field(inbound.get("settings"))
+            emails = [
+                str(item.get("email") or "")
+                for item in settings_obj.get("clients", [])
+                if isinstance(item, dict)
+            ]
+            preview = ", ".join(emails[:8])
+            if len(emails) > 8:
+                preview += ", ..."
+            print(f"  existing_client_emails=[{preview}]")
+    else:
+        print(f"  target_email={email} found_in_inbound=True")
+        print(f"  client_enable={read_panel_bool(client.get('enable'))}")
+        print(f"  client_limitIp={read_panel_int(client.get('limitIp'))}")
+        if protocol.lower() == "vless":
+            print(f"  client_flow={client.get('flow') or '<not set>'}")
 
 
 async def _verify_raw_client_in_inbound(service, email: str, *, limit_ip: int | None = None) -> None:
@@ -99,9 +141,11 @@ async def _verify_raw_client_in_inbound(service, email: str, *, limit_ip: int | 
     api_client = service._client  # noqa: SLF001
     inbound = await api_client.get_inbound_raw(api_client.inbound_id)
     if inbound is None:
+        await _print_inbound_diagnostics(service, email)
         raise SystemExit("FAIL: configured inbound not found")
     client = find_client_matching_delete_criteria(inbound, criteria)
     if client is None:
+        await _print_inbound_diagnostics(service, email)
         raise SystemExit(f"FAIL: client '{email}' not found in inbound settings.clients")
     if limit_ip is not None:
         actual = read_panel_int(client.get("limitIp"))
@@ -357,7 +401,14 @@ async def main() -> None:
                 )
             if args.delete:
                 if result is None:
-                    info = await _load_client_state(service, args.email)
+                    info = await service.get_client(args.email)
+                    if info is None:
+                        print(
+                            f"Client '{args.email}' not found. "
+                            "Use --create to create it first, or --lifecycle for full flow.",
+                        )
+                        await _print_inbound_diagnostics(service, args.email)
+                        raise SystemExit(1)
                     result = SimpleNamespace(
                         external_id=info.client_uuid,
                         raw={"subId": ""},
@@ -370,6 +421,11 @@ async def main() -> None:
                 print("Traffic used bytes:", traffic.used_traffic_bytes, "online:", traffic.online)
     except VpnPanelError as exc:
         print(f"Error: {exc.message}")
+        if args.email:
+            try:
+                await _print_inbound_diagnostics(service, args.email)
+            except Exception:
+                pass
         raise SystemExit(2) from exc
 
 

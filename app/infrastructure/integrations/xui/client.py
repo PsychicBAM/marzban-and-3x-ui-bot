@@ -16,7 +16,9 @@ from app.infrastructure.integrations.xui.inbound_mutations import (
     ClientUpdateExpectation,
     append_client_to_inbound,
     build_inbound_update_payload,
+    client_exists_in_inbound,
     client_update_verification_errors,
+    count_clients_in_inbound,
     find_client_matching_delete_criteria,
     inbound_display_name,
     inbound_id_value,
@@ -218,6 +220,52 @@ class XuiApiClient:
             )
         return data if isinstance(data, dict) else {}
 
+    @staticmethod
+    def _parse_response_meta(response: httpx.Response) -> dict[str, Any]:
+        meta: dict[str, Any] = {
+            "http_status": response.status_code,
+            "success": None,
+            "msg": None,
+        }
+        if not response.content:
+            return meta
+        try:
+            data = response.json()
+            if isinstance(data, dict):
+                meta["success"] = data.get("success")
+                raw_msg = data.get("msg") or data.get("message")
+                if raw_msg is not None:
+                    meta["msg"] = str(raw_msg)[:200]
+        except Exception:
+            pass
+        return meta
+
+    @staticmethod
+    def _format_add_client_verification_failure(
+        *,
+        inbound_id: int,
+        target_email: str,
+        protocol: str,
+        clients_before: int,
+        clients_after: int,
+        settings_parsed_before: bool,
+        settings_parsed_after: bool,
+        update_meta: dict[str, Any],
+    ) -> str:
+        return (
+            "3x-ui add client verification failed after inbound update fallback: "
+            f"inbound_id={inbound_id}; "
+            f"target_email={target_email}; "
+            f"protocol={protocol}; "
+            f"clients_before={clients_before}; "
+            f"clients_after={clients_after}; "
+            f"settings_parsed_before={settings_parsed_before}; "
+            f"settings_parsed_after={settings_parsed_after}; "
+            f"update_http_status={update_meta.get('http_status')}; "
+            f"update_success={update_meta.get('success')}; "
+            f"update_msg={update_meta.get('msg') or '—'}"
+        )
+
     async def list_inbounds_raw(self) -> list[dict[str, Any]]:
         path = "/panel/api/inbounds/list"
         response = await self._request("GET", path)
@@ -234,17 +282,19 @@ class XuiApiClient:
         obj = data.get("obj")
         return obj if isinstance(obj, dict) else None
 
-    async def _update_inbound_raw(self, inbound_id: int, inbound: dict[str, Any]) -> None:
+    async def _update_inbound_raw(self, inbound_id: int, inbound: dict[str, Any]) -> dict[str, Any]:
         path = f"/panel/api/inbounds/update/{inbound_id}"
         payload = build_inbound_update_payload(inbound)
         form_body = inbound_update_to_form(payload)
         response = await self._request("POST", path, form_body=form_body)
+        meta = self._parse_response_meta(response)
         self._ensure_success(
             response,
             context="update inbound",
             method="POST",
             path=path,
         )
+        return meta
 
     async def _add_client_via_inbound_update(self, inbound_id: int, client: dict[str, Any]) -> None:
         inbound = await self.get_inbound_raw(inbound_id)
@@ -253,8 +303,62 @@ class XuiApiClient:
                 f"xui inbound {inbound_id} not found for client add fallback",
                 panel="xui",
             )
+
+        target_email = str(client.get("email") or "")
+        protocol = str(inbound.get("protocol") or "")
+        clients_before, settings_parsed_before = count_clients_in_inbound(inbound)
+
         updated_inbound = append_client_to_inbound(inbound, client)
-        await self._update_inbound_raw(inbound_id, updated_inbound)
+        try:
+            update_meta = await self._update_inbound_raw(inbound_id, updated_inbound)
+        except VpnPanelError as exc:
+            raise VpnPanelError(
+                self._format_add_client_verification_failure(
+                    inbound_id=inbound_id,
+                    target_email=target_email,
+                    protocol=protocol,
+                    clients_before=clients_before,
+                    clients_after=clients_before,
+                    settings_parsed_before=settings_parsed_before,
+                    settings_parsed_after=settings_parsed_before,
+                    update_meta={
+                        "http_status": "error",
+                        "success": False,
+                        "msg": exc.message[:200],
+                    },
+                ),
+                panel="xui",
+            ) from exc
+
+        inbound_after = await self.get_inbound_raw(inbound_id)
+        clients_after, settings_parsed_after = count_clients_in_inbound(inbound_after)
+        found = inbound_after is not None and client_exists_in_inbound(inbound_after, target_email)
+        if found:
+            logger.info(
+                "3x-ui add client inbound update verified",
+                extra={
+                    "inbound_id": inbound_id,
+                    "email": target_email,
+                    "clients_before": clients_before,
+                    "clients_after": clients_after,
+                    "update_http_status": update_meta.get("http_status"),
+                },
+            )
+            return
+
+        raise VpnPanelError(
+            self._format_add_client_verification_failure(
+                inbound_id=inbound_id,
+                target_email=target_email,
+                protocol=protocol,
+                clients_before=clients_before,
+                clients_after=clients_after,
+                settings_parsed_before=settings_parsed_before,
+                settings_parsed_after=settings_parsed_after,
+                update_meta=update_meta,
+            ),
+            panel="xui",
+        )
 
     def _client_match_criteria_from_payload(self, client: dict[str, Any]) -> ClientDeleteCriteria:
         return ClientDeleteCriteria(

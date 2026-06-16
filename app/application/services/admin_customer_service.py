@@ -144,12 +144,13 @@ class AdminCustomerService:
             if plan is not None:
                 plan_name = plan.name
 
-        traffic_display = CustomerVpnService._format_used_traffic(account.traffic_used_bytes)
+        traffic_display = CustomerVpnService._format_used_traffic(account.traffic_used_bytes, lang="ru")
         traffic_refresh_failed = False
         if not is_deleted:
             overview = await self._customer_vpn.build_overview(
                 user.telegram_id,
                 account_id=account.id,
+                lang="ru",
             )
             if overview is not None:
                 traffic_display = overview.traffic_display

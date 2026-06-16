@@ -435,3 +435,22 @@ def inbound_update_to_form(payload: dict[str, Any]) -> dict[str, str]:
         else:
             form[key] = str(value)
     return form
+
+
+def count_clients_in_inbound(inbound: dict[str, Any] | None) -> tuple[int, bool]:
+    """Return (client_count, settings_parsed_ok). Count is -1 when settings cannot be read."""
+    if inbound is None:
+        return -1, False
+    try:
+        settings_obj = parse_settings_field(inbound.get("settings"))
+        clients = settings_obj.get("clients", [])
+        if not isinstance(clients, list):
+            return 0, True
+        return len(clients), True
+    except Exception:
+        return -1, False
+
+
+def client_exists_in_inbound(inbound: dict[str, Any], email: str) -> bool:
+    criteria = ClientDeleteCriteria(email=email)
+    return find_client_matching_delete_criteria(inbound, criteria) is not None

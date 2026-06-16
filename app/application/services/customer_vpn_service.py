@@ -327,7 +327,7 @@ class CustomerVpnService:
         return max(0, (expiry - now).days)
 
     @staticmethod
-    def _format_used_traffic(used_bytes: int, lang: str) -> str:
+    def _format_used_traffic(used_bytes: int, lang: str = "ru") -> str:
         if used_bytes <= 0:
             return t(lang, "myvpn.traffic.zero")
         gb = used_bytes / (1024**3)
@@ -336,13 +336,13 @@ class CustomerVpnService:
         return t(lang, "myvpn.traffic.gb", n=f"{gb:.2f}")
 
     @staticmethod
-    def _format_traffic_limit(limit_gb: int, lang: str) -> str:
+    def _format_traffic_limit(limit_gb: int, lang: str = "ru") -> str:
         if limit_gb <= 0:
             return t(lang, "myvpn.unlimited")
         return t(lang, "myvpn.traffic.gb", n=limit_gb)
 
     @staticmethod
-    def _format_ip_limit(ip_limit: int, lang: str) -> str:
+    def _format_ip_limit(ip_limit: int, lang: str = "ru") -> str:
         if ip_limit <= 0:
             return t(lang, "myvpn.unlimited")
         return str(ip_limit)
