@@ -21,13 +21,13 @@ def my_vpn_keyboard(account_id: int, lang: str | None = None) -> InlineKeyboardM
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🔗 Получить ссылку" if code == "ru" else "🔗 Get link",
+                    text=t(code, "myvpn.get_link"),
                     callback_data=f"{MYVPN_LINKS_PREFIX}{account_id}",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="📷 Получить QR-code" if code == "ru" else "📷 Get QR code",
+                    text=t(code, "myvpn.get_qr"),
                     callback_data=f"{MYVPN_QR_PREFIX}{account_id}",
                 )
             ],

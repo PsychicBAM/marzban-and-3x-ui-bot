@@ -124,7 +124,9 @@ class DatabaseMiddleware(BaseMiddleware):
                 settings,
                 admin_log_service,
             )
-            data["manual_key_flow_service"] = create_manual_key_flow_service(uow, data["plan_service"])
+            manual_key_flow_service = create_manual_key_flow_service(uow, data["plan_service"])
+            data["manual_key_flow_service"] = manual_key_flow_service
+            data["flow_service"] = manual_key_flow_service
             broadcast_service = BroadcastService(uow, admin_log_service)
             data["broadcast_service"] = broadcast_service
             data["broadcast_sender_service"] = BroadcastSenderService(broadcast_service)

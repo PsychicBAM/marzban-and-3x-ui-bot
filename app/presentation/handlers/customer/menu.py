@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from aiogram import Router
+from aiogram.filters import StateFilter
 from aiogram.types import Message
 
 from app.presentation.filters.customer_menu import menu_text_filter
@@ -11,6 +12,7 @@ from app.presentation.keyboards.customer import (
     customer_main_keyboard,
     customer_more_keyboard,
 )
+from app.presentation.states.admin_panel import AdminPanelStates
 
 router = Router(name="customer_menu")
 
@@ -39,7 +41,7 @@ async def handle_more_submenu(message: Message, lang: str) -> None:
     )
 
 
-@router.message(menu_text_filter("menu.back"))
+@router.message(menu_text_filter("menu.back"), ~StateFilter(AdminPanelStates.submenu))
 async def handle_back_to_main_menu(message: Message, lang: str) -> None:
     await message.answer(
         t(lang, "common.main_menu_short"),

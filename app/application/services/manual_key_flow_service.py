@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from app.application.dto.manual_provision import ManualProvisionRequest, ManualProvisionResult, ProvisionProfile
 from app.application.services.plan_service import ISSUING_MODE_LABELS, PlanService
@@ -39,6 +40,25 @@ class ManualKeyFlowService:
         return await self._uow.vpn_accounts.get_renewal_candidate(user_id)
 
     @staticmethod
+    def _profile_get(
+        profile: ProvisionProfile | dict[str, Any] | None,
+        key: str,
+        default: Any = None,
+    ) -> Any:
+        if profile is None:
+            return default
+        if isinstance(profile, dict):
+            return profile.get(key, default)
+        return getattr(profile, key, default)
+
+    def _resolve_profile(self, profile: ProvisionProfile | dict[str, Any] | None) -> ProvisionProfile | None:
+        if profile is None:
+            return None
+        if isinstance(profile, dict):
+            return self.profile_from_dict(profile)
+        return profile
+
+    @staticmethod
     def profile_to_dict(profile: ProvisionProfile) -> dict:
         return {
             "name": profile.name,
@@ -69,6 +89,57 @@ class ManualKeyFlowService:
             issuing_mode=plan.issuing_mode,
             plan_id=plan.id,
         )
+
+    def profile_dict_from_fsm_data(self, data: dict) -> dict | None:
+        """Build a normalized profile dict from FSM state (plan or manual mode)."""
+        profile = data.get("profile")
+        if isinstance(profile, dict) and profile.get("issuing_mode"):
+            return {
+                "name": profile.get("name") or "—",
+                "duration_days": int(profile["duration_days"]),
+                "traffic_limit_gb": int(profile["traffic_limit_gb"]),
+                "ip_limit": int(profile["ip_limit"]),
+                "issuing_mode": str(profile["issuing_mode"]),
+                "plan_id": profile.get("plan_id"),
+            }
+
+        duration = data.get("duration_days")
+        if duration is None:
+            duration = data.get("custom_duration_days")
+        traffic = data.get("traffic_limit_gb")
+        if traffic is None:
+            traffic = data.get("custom_traffic_gb")
+        ip_limit = data.get("ip_limit")
+        if ip_limit is None:
+            ip_limit = data.get("custom_ip_limit")
+        issuing_mode = data.get("issuing_mode")
+        if isinstance(profile, dict) and not issuing_mode:
+            issuing_mode = profile.get("issuing_mode")
+
+        if duration is None or traffic is None or ip_limit is None or not issuing_mode:
+            return None
+
+        name = "Ручные параметры"
+        if isinstance(profile, dict) and profile.get("name"):
+            name = str(profile["name"])
+        plan_id = data.get("plan_id")
+        if plan_id is None and isinstance(profile, dict):
+            plan_id = profile.get("plan_id")
+
+        return {
+            "name": name,
+            "duration_days": int(duration),
+            "traffic_limit_gb": int(traffic),
+            "ip_limit": int(ip_limit),
+            "issuing_mode": str(issuing_mode),
+            "plan_id": plan_id,
+        }
+
+    def resolve_profile_from_fsm_data(self, data: dict) -> ProvisionProfile | None:
+        profile_dict = self.profile_dict_from_fsm_data(data)
+        if profile_dict is None:
+            return None
+        return self.profile_from_dict(profile_dict)
 
     def validate_custom_duration(self, raw: str) -> int:
         value = int(raw.strip())
@@ -112,13 +183,19 @@ class ManualKeyFlowService:
     def format_confirmation(self, data: dict) -> str:
         mode = data.get("mode")
         mode_label = "Существующий клиент" if mode == "existing" else "Ручной ключ без клиента"
-        profile: ProvisionProfile | None = data.get("profile")
-        if profile is None:
+        profile_raw = data.get("profile")
+        if profile_raw is None:
             return "Данные неполные."
 
-        traffic = "Безлимит" if profile.traffic_limit_gb <= 0 else f"{profile.traffic_limit_gb} ГБ"
-        devices = "Безлимит" if profile.ip_limit <= 0 else str(profile.ip_limit)
-        issuing = ISSUING_MODE_LABELS.get(profile.issuing_mode, profile.issuing_mode)
+        traffic_limit_gb = int(self._profile_get(profile_raw, "traffic_limit_gb", 0) or 0)
+        ip_limit = int(self._profile_get(profile_raw, "ip_limit", 0) or 0)
+        duration_days = int(self._profile_get(profile_raw, "duration_days", 0) or 0)
+        issuing_mode = str(self._profile_get(profile_raw, "issuing_mode", "") or "")
+        profile_name = str(self._profile_get(profile_raw, "name", "—") or "—")
+
+        traffic = "Безлимит" if traffic_limit_gb <= 0 else f"{traffic_limit_gb} ГБ"
+        devices = "Безлимит" if ip_limit <= 0 else str(ip_limit)
+        issuing = ISSUING_MODE_LABELS.get(issuing_mode, issuing_mode)
         expiry: datetime | None = data.get("preview_expiry")
         expiry_text = expiry.strftime("%d.%m.%Y %H:%M") if expiry else "—"
 
@@ -138,8 +215,8 @@ class ManualKeyFlowService:
         lines.extend(
             [
                 f"🔑 Имя VPN: <code>{data.get('account_name', '—')}</code>",
-                f"📦 Тариф/профиль: {profile.name}",
-                f"📅 Срок: {profile.duration_days} дн.",
+                f"📦 Тариф/профиль: {profile_name}",
+                f"📅 Срок: {duration_days} дн.",
                 f"📅 Истекает: {expiry_text}",
                 f"📶 Трафик: {traffic}",
                 f"📱 Устройств: {devices}",
@@ -164,7 +241,9 @@ class ManualKeyFlowService:
         return "\n".join(lines)
 
     def build_request(self, data: dict) -> ManualProvisionRequest:
-        profile: ProvisionProfile = data["profile"]
+        profile = self.resolve_profile_from_fsm_data(data)
+        if profile is None:
+            raise ValueError("Профиль VPN не задан.")
         return ManualProvisionRequest(
             mode=data["mode"],
             user_id=int(data["user_id"]),
