@@ -12,7 +12,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0012_vpn_account_name_partial_unique"
+revision: str = "0012_partial_unique"
 down_revision: Union[str, None] = "0011_production_features"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
