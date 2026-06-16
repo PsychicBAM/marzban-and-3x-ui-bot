@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+from dataclasses import dataclass
 from typing import Any, Literal
+from urllib.parse import quote
 
 import httpx
 
@@ -30,9 +32,25 @@ from app.infrastructure.integrations.xui.inbound_mutations import (
 logger = logging.getLogger(__name__)
 
 ADD_CLIENT_PATH = "/panel/api/inbounds/addClient"
+GLOBAL_CLIENTS_LIST_PATH = "/panel/api/clients/list"
+GLOBAL_CLIENTS_LIST_PAGED_PATH = "/panel/api/clients/list/paged"
+GLOBAL_CLIENTS_BULK_DEL_PATH = "/panel/api/clients/bulkDel"
 
 ClientMutationMethod = Literal["addClient", "inbound_update", "delClient", "updateClient"]
 ClientUpdateMethod = Literal["updateClient", "inbound_update"]
+GlobalClientDeleteMethod = Literal["bulkDel", "del_email", "not_present", "unavailable"]
+
+
+@dataclass(frozen=True, slots=True)
+class XuiClientDeleteOutcome:
+    email: str | None
+    uuid_present: bool
+    removed_from_inbounds: bool
+    removed_global_client: bool
+    inbound_method: str | None
+    global_method: GlobalClientDeleteMethod | None
+    global_cleanup_available: bool
+    full_success: bool
 
 
 class XuiApiClient:
@@ -49,6 +67,7 @@ class XuiApiClient:
         self._last_client_add_method: ClientMutationMethod | None = None
         self._last_client_delete_method: ClientMutationMethod | None = None
         self._last_client_update_method: ClientUpdateMethod | None = None
+        self._last_client_delete_outcome: XuiClientDeleteOutcome | None = None
 
     @property
     def inbound_id(self) -> int:
@@ -65,6 +84,10 @@ class XuiApiClient:
     @property
     def last_client_update_method(self) -> ClientUpdateMethod | None:
         return self._last_client_update_method
+
+    @property
+    def last_client_delete_outcome(self) -> XuiClientDeleteOutcome | None:
+        return self._last_client_delete_outcome
 
     def _auth_headers(self) -> dict[str, str]:
         if self._api_token:
@@ -628,7 +651,7 @@ class XuiApiClient:
                 matched.append((inbound_id, inbound))
         return matched
 
-    async def _verify_client_deleted_globally(
+    async def _verify_client_deleted_from_all_inbounds(
         self,
         criteria: ClientDeleteCriteria,
     ) -> None:
@@ -641,11 +664,166 @@ class XuiApiClient:
                 continue
             if find_client_matching_delete_criteria(inbound, criteria) is not None:
                 logger.warning(
-                    "3x-ui delete global verification failed",
+                    "3x-ui delete inbound verification failed",
                     extra={"inbound_id": inbound_id},
                 )
                 raise self._client_still_exists_error(inbound)
-        logger.info("3x-ui delete global verification succeeded")
+        logger.info("3x-ui delete inbound verification succeeded")
+
+    async def _global_clients_api_available(self) -> bool:
+        response = await self._request("GET", GLOBAL_CLIENTS_LIST_PATH)
+        return response.status_code == 200
+
+    async def _list_global_clients_paged_raw(self) -> list[dict[str, Any]]:
+        response = await self._request(
+            "GET",
+            f"{GLOBAL_CLIENTS_LIST_PAGED_PATH}?page=1&size=500",
+        )
+        if response.status_code == 404:
+            return []
+        data = self._ensure_success(
+            response,
+            context="list global clients paged",
+            method="GET",
+            path=GLOBAL_CLIENTS_LIST_PAGED_PATH,
+        )
+        obj = data.get("obj")
+        if isinstance(obj, dict):
+            items = obj.get("items", [])
+            return [item for item in items if isinstance(item, dict)]
+        return []
+
+    @staticmethod
+    def _global_record_matches_criteria(
+        record: dict[str, Any],
+        criteria: ClientDeleteCriteria,
+    ) -> bool:
+        target_email = (criteria.email or "").strip().lower()
+        target_uuid = (criteria.client_uuid or "").strip().lower()
+        target_sub_id = (criteria.sub_id or "").strip().lower()
+
+        record_email = str(record.get("email") or "").strip().lower()
+        if target_email and record_email == target_email:
+            return True
+
+        record_uuid = str(record.get("uuid") or "").strip().lower()
+        if target_uuid and record_uuid and record_uuid == target_uuid:
+            return True
+
+        record_sub_id = str(record.get("subId") or "").strip().lower()
+        if target_sub_id and record_sub_id and record_sub_id == target_sub_id:
+            return True
+        return False
+
+    async def _find_global_client_record(
+        self,
+        criteria: ClientDeleteCriteria,
+    ) -> dict[str, Any] | None:
+        email = (criteria.email or "").strip()
+        if email:
+            response = await self._request("GET", f"/panel/api/clients/get/{quote(email, safe='')}")
+            if response.status_code == 200:
+                data = response.json() if response.content else {}
+                if isinstance(data, dict) and data.get("success") is True:
+                    obj = data.get("obj")
+                    if isinstance(obj, dict):
+                        client = obj.get("client")
+                        if isinstance(client, dict):
+                            return client
+                        return obj
+
+        for record in await self._list_global_clients_paged_raw():
+            if self._global_record_matches_criteria(record, criteria):
+                return record
+        return None
+
+    async def _global_client_record_exists(self, criteria: ClientDeleteCriteria) -> bool:
+        return await self._find_global_client_record(criteria) is not None
+
+    async def _resolve_global_delete_email(self, criteria: ClientDeleteCriteria) -> str | None:
+        email = (criteria.email or "").strip()
+        if email:
+            return email
+        record = await self._find_global_client_record(criteria)
+        if record is None:
+            return None
+        resolved = str(record.get("email") or "").strip()
+        return resolved or None
+
+    async def _delete_global_client_record(
+        self,
+        criteria: ClientDeleteCriteria,
+    ) -> tuple[bool, GlobalClientDeleteMethod | None, bool]:
+        """Return (removed, method, api_available)."""
+        api_available = await self._global_clients_api_available()
+        if not api_available:
+            logger.warning("xui orphan client cleanup unavailable")
+            return False, "unavailable", False
+
+        if not await self._global_client_record_exists(criteria):
+            return True, "not_present", True
+
+        delete_email = await self._resolve_global_delete_email(criteria)
+        if not delete_email:
+            logger.warning(
+                "3x-ui global client delete skipped: email could not be resolved",
+                extra={"uuid_present": bool(criteria.client_uuid), "sub_id_present": bool(criteria.sub_id)},
+            )
+            return False, None, True
+
+        bulk_response = await self._request(
+            "POST",
+            GLOBAL_CLIENTS_BULK_DEL_PATH,
+            json_body={"emails": [delete_email], "keepTraffic": False},
+        )
+        if bulk_response.status_code == 200:
+            data = bulk_response.json() if bulk_response.content else {}
+            obj = data.get("obj") if isinstance(data, dict) else None
+            deleted_count = 0
+            if isinstance(obj, dict):
+                deleted_count = int(obj.get("deleted") or 0)
+            if isinstance(data, dict) and data.get("success") is True and deleted_count > 0:
+                if not await self._global_client_record_exists(criteria):
+                    return True, "bulkDel", True
+
+        del_path = f"/panel/api/clients/del/{quote(delete_email, safe='')}?keepTraffic=0"
+        del_response = await self._request("POST", del_path)
+        if del_response.status_code == 200:
+            data = del_response.json() if del_response.content else {}
+            if isinstance(data, dict) and data.get("success") is True:
+                if not await self._global_client_record_exists(criteria):
+                    return True, "del_email", True
+
+        if await self._global_client_record_exists(criteria):
+            return False, None, True
+        return True, "not_present", True
+
+    async def _verify_global_client_record_absent(self, criteria: ClientDeleteCriteria) -> None:
+        if not await self._global_clients_api_available():
+            return
+        if await self._global_client_record_exists(criteria):
+            email = (criteria.email or "").strip() or "unknown"
+            raise VpnPanelError(
+                f"3x-ui delete verification failed: global client record still exists for '{email}'",
+                panel="xui",
+            )
+        logger.info("3x-ui delete global client verification succeeded")
+
+    async def _delete_client_via_del_client(
+        self,
+        inbound_id: int,
+        criteria: ClientDeleteCriteria,
+    ) -> bool:
+        client_uuid = (criteria.client_uuid or "").strip()
+        if not client_uuid:
+            return False
+        path = f"/panel/api/inbounds/{inbound_id}/delClient/{client_uuid}"
+        response = await self._request("POST", path)
+        if response.status_code == 404:
+            return False
+        self._ensure_success(response, context="delete client", method="POST", path=path)
+        await self._verify_client_deleted_in_inbound(inbound_id, criteria)
+        return True
 
     async def _delete_client_via_inbound_update(
         self,
@@ -671,34 +849,116 @@ class XuiApiClient:
         await self._update_inbound_raw(inbound_id, updated_inbound)
         await self._verify_client_deleted_in_inbound(inbound_id, criteria)
 
+    async def _delete_client_from_inbound(
+        self,
+        inbound_id: int,
+        criteria: ClientDeleteCriteria,
+    ) -> ClientMutationMethod:
+        if await self._delete_client_via_del_client(inbound_id, criteria):
+            return "delClient"
+        await self._delete_client_via_inbound_update(inbound_id, criteria)
+        return "inbound_update"
+
+    def _log_delete_outcome(self, outcome: XuiClientDeleteOutcome) -> None:
+        method_parts = [part for part in (outcome.inbound_method, outcome.global_method) if part]
+        combined_method = "+".join(method_parts) if method_parts else "none"
+        logger.info(
+            "3x-ui client delete finished",
+            extra={
+                "email": outcome.email or "",
+                "uuid_present": "yes" if outcome.uuid_present else "no",
+                "removed_from_inbounds": "yes" if outcome.removed_from_inbounds else "no",
+                "removed_global_client": "yes" if outcome.removed_global_client else "no",
+                "method": combined_method,
+                "global_cleanup_available": outcome.global_cleanup_available,
+                "full_success": outcome.full_success,
+            },
+        )
+
     async def delete_client_everywhere(
         self,
         criteria: ClientDeleteCriteria,
-    ) -> None:
-        """Remove matching client from every inbound via get-modify-update."""
+    ) -> XuiClientDeleteOutcome:
+        """Remove client from all inbounds and from the global Clients page when supported."""
         self._last_client_delete_method = None
+        self._last_client_delete_outcome = None
+
+        email = (criteria.email or "").strip() or None
+        uuid_present = bool((criteria.client_uuid or "").strip())
+        removed_from_inbounds = False
+        inbound_method: ClientMutationMethod | None = None
+
         matched = await self._find_inbounds_with_client(criteria)
-        if not matched:
+        if matched:
+            inbound_methods: set[str] = set()
+            for inbound_id, _ in matched:
+                logger.info(
+                    "3x-ui delete: removing client from inbound",
+                    extra={"inbound_id": inbound_id},
+                )
+                method = await self._delete_client_from_inbound(inbound_id, criteria)
+                inbound_methods.add(method)
+            removed_from_inbounds = True
+            inbound_method = "inbound_update" if "inbound_update" in inbound_methods else "delClient"
+            self._last_client_delete_method = inbound_method
+            await self._verify_client_deleted_from_all_inbounds(criteria)
+        else:
             logger.info(
                 "3x-ui delete: client not found in any inbound",
-                extra={"email": criteria.email or ""},
+                extra={"email": email or ""},
             )
-            await self._verify_client_deleted_globally(criteria)
-            return
+            await self._verify_client_deleted_from_all_inbounds(criteria)
 
-        self._last_client_delete_method = "inbound_update"
-        for inbound_id, _ in matched:
-            logger.info(
-                "3x-ui delete: removing client from inbound",
-                extra={"inbound_id": inbound_id},
-            )
-            await self._delete_client_via_inbound_update(inbound_id, criteria)
+        removed_global, global_method, api_available = await self._delete_global_client_record(criteria)
+        if api_available:
+            await self._verify_global_client_record_absent(criteria)
+            full_success = removed_global and (removed_from_inbounds or not matched)
+        else:
+            logger.warning("xui orphan client cleanup unavailable")
+            full_success = False
 
-        await self._verify_client_deleted_globally(criteria)
-        logger.info(
-            "3x-ui client deleted from all matched inbounds",
-            extra={"inbound_count": len(matched)},
+        outcome = XuiClientDeleteOutcome(
+            email=email,
+            uuid_present=uuid_present,
+            removed_from_inbounds=removed_from_inbounds,
+            removed_global_client=removed_global,
+            inbound_method=inbound_method,
+            global_method=global_method,
+            global_cleanup_available=api_available,
+            full_success=full_success,
         )
+        self._last_client_delete_outcome = outcome
+        self._log_delete_outcome(outcome)
+
+        if not full_success:
+            raise VpnPanelError(
+                "3x-ui client delete incomplete: "
+                f"removed_from_inbounds={removed_from_inbounds}; "
+                f"removed_global_client={removed_global}; "
+                f"global_cleanup_available={api_available}",
+                panel="xui",
+            )
+        return outcome
+
+    async def list_orphan_global_clients_raw(self) -> list[dict[str, Any]]:
+        """Global Clients entries with no attached inbounds (panel orphan records)."""
+        orphans: list[dict[str, Any]] = []
+        for record in await self._list_global_clients_paged_raw():
+            inbound_ids = record.get("inboundIds")
+            if isinstance(inbound_ids, list) and inbound_ids:
+                continue
+            email = str(record.get("email") or "").strip()
+            if not email:
+                continue
+            criteria = ClientDeleteCriteria(
+                email=email,
+                client_uuid=str(record.get("uuid") or "") or None,
+                sub_id=str(record.get("subId") or "") or None,
+            )
+            if await self._find_inbounds_with_client(criteria):
+                continue
+            orphans.append(record)
+        return orphans
 
     async def get_client_traffic_raw(self, email: str) -> dict[str, Any] | None:
         path = f"/panel/api/inbounds/getClientTraffics/{email}"

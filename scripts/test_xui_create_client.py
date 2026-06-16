@@ -89,6 +89,17 @@ async def _verify_client_absent(service, email: str) -> None:
             )
 
 
+async def _verify_global_client_absent(service, email: str) -> None:
+    api_client = service._client  # noqa: SLF001
+    if not await api_client._global_clients_api_available():  # noqa: SLF001
+        print("Global Clients API unavailable; skipped global list verification")
+        return
+    criteria = ClientDeleteCriteria(email=email)
+    if await api_client._global_client_record_exists(criteria):  # noqa: SLF001
+        raise SystemExit(f"FAIL: client '{email}' still exists on global Clients page")
+    print("Delete verification: client absent from global Clients list")
+
+
 async def _load_client_state(service, email: str):
     info = await service.get_client(email)
     if info is None:
@@ -260,10 +271,20 @@ async def _run_delete(service, client: XuiApiClient, email: str, result) -> None
         client_uuid=result.external_id,
         sub_id=str(result.raw.get("subId") or "") if result.raw else None,
     )
+    outcome = client.last_client_delete_outcome
     delete_method = client.last_client_delete_method or "unknown"
+    if outcome is not None:
+        print(
+            "Delete outcome:",
+            f"inbound={outcome.inbound_method or 'none'}",
+            f"global={outcome.global_method or 'none'}",
+            f"removed_from_inbounds={outcome.removed_from_inbounds}",
+            f"removed_global_client={outcome.removed_global_client}",
+        )
     print("Deleted test client. Delete method:", delete_method)
     await _verify_client_absent(service, email)
     print("Delete verification: client absent from all inbounds")
+    await _verify_global_client_absent(service, email)
 
 
 async def main() -> None:

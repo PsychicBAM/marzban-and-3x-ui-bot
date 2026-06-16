@@ -450,7 +450,19 @@ class XuiService(XuiPort):
             sub_id=sub_id,
         )
         await self._client.delete_client_everywhere(criteria)
-        logger.info("3x-ui client deleted", extra={"email": account_name})
+        outcome = self._client.last_client_delete_outcome
+        logger.info(
+            "3x-ui client deleted",
+            extra={
+                "email": account_name,
+                "removed_global_client": outcome.removed_global_client if outcome else None,
+                "method": (
+                    f"{outcome.inbound_method}+{outcome.global_method}"
+                    if outcome and outcome.inbound_method and outcome.global_method
+                    else (outcome.global_method if outcome else None)
+                ),
+            },
+        )
 
     async def get_client_traffic(self, email: str) -> int:
         account_name = normalize_vpn_account_name(email)
