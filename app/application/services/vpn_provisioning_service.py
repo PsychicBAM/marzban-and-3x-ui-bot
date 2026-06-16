@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
+from sqlalchemy.exc import IntegrityError
+
 from app.application.dto.provisioning import PanelProvisionResult, ProvisioningResult
 from app.application.exceptions import (
     VpnPanelConflictError,
@@ -67,8 +69,6 @@ class VpnProvisioningService:
         elif is_separate_purchase:
             renewal_candidate = None
             account_name = normalize_vpn_account_name(request.target_vpn_account_name or "")
-            if await self._uow.vpn_accounts.exists_by_name(account_name):
-                raise VpnProvisioningError(f"Имя VPN '{account_name}' уже занято.")
             new_db_record = True
         else:
             renewal_candidate = await self._uow.vpn_accounts.get_renewal_candidate(user.id)
@@ -82,6 +82,9 @@ class VpnProvisioningService:
                 else self._resolve_account_name(user)
             )
             new_db_record = ExpiryCalculator.requires_new_db_record(renewal_candidate)
+
+        if new_db_record:
+            await self._assert_vpn_account_name_available(account_name)
 
         duration_days = plan.duration_days + (request.extra_days_from_promo or 0)
         expiry_at, action = ExpiryCalculator.calculate(
@@ -168,17 +171,32 @@ class VpnProvisioningService:
 
         if new_db_record or renewal_candidate is None:
             existing_count = await self._uow.vpn_accounts.count_non_deleted_for_user(user.id)
-            vpn_account = await self._uow.vpn_accounts.create(
-                user_id=user.id,
-                plan_id=plan.id,
-                vpn_account_name=account_name,
-                expiry_date=expiry_at,
-                traffic_limit_gb=plan.traffic_limit_gb,
-                ip_limit=plan.ip_limit,
-                status=status,
-                display_name=request.target_display_name if is_separate_purchase else None,
-                is_primary=existing_count == 0,
-            )
+            try:
+                async with self._uow.session.begin_nested():
+                    vpn_account = await self._uow.vpn_accounts.create(
+                        user_id=user.id,
+                        plan_id=plan.id,
+                        vpn_account_name=account_name,
+                        expiry_date=expiry_at,
+                        traffic_limit_gb=plan.traffic_limit_gb,
+                        ip_limit=plan.ip_limit,
+                        status=status,
+                        display_name=request.target_display_name if is_separate_purchase else None,
+                        is_primary=existing_count == 0,
+                    )
+            except IntegrityError as exc:
+                logger.error(
+                    "vpn_account_name_integrity_error",
+                    extra={
+                        "requested_vpn_account_name": account_name,
+                        "user_id": user.id,
+                        "error": str(exc.orig)[:300] if exc.orig else str(exc)[:300],
+                    },
+                )
+                raise VpnProvisioningError(
+                    f"Имя VPN '{account_name}' уже занято активной подпиской. "
+                    "Проверьте подписки клиента и повторите одобрение с другим именем.",
+                ) from exc
         else:
             vpn_account = renewal_candidate
 
@@ -380,6 +398,33 @@ class VpnProvisioningService:
         if normalized is None:
             raise VpnProvisioningError(MISSING_USERNAME_ERROR)
         return normalized
+
+    async def _assert_vpn_account_name_available(self, account_name: str) -> None:
+        logger.info(
+            "vpn_account_name_requested",
+            extra={"requested_vpn_account_name": account_name},
+        )
+        active = await self._uow.vpn_accounts.get_active_by_name(account_name)
+        if active is not None:
+            logger.warning(
+                "vpn_account_name_blocked_active_duplicate",
+                extra={
+                    "requested_vpn_account_name": account_name,
+                    "duplicate_active_account_id": active.id,
+                },
+            )
+            raise VpnProvisioningError(
+                f"Имя VPN '{account_name}' уже занято активной подпиской (ID {active.id}).",
+            )
+        deleted_count = await self._uow.vpn_accounts.count_deleted_by_name(account_name)
+        if deleted_count:
+            logger.info(
+                "vpn_account_name_deleted_history_ignored",
+                extra={
+                    "requested_vpn_account_name": account_name,
+                    "deleted_duplicate_count": deleted_count,
+                },
+            )
 
     def _panels_for_plan(self, plan: Plan) -> list[str]:
         mode = plan.issuing_mode

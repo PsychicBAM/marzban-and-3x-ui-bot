@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,6 +13,13 @@ from app.infrastructure.db.models.vpn_account import VpnAccount
 class VpnAccountRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    @staticmethod
+    def _is_non_deleted_clause():
+        return (
+            VpnAccount.deleted_at.is_(None),
+            VpnAccount.status != VpnAccountStatus.DELETED.value,
+        )
 
     async def get_by_id(self, account_id: int) -> VpnAccount | None:
         stmt = select(VpnAccount).where(VpnAccount.id == account_id)
@@ -28,9 +35,36 @@ class VpnAccountRepository:
         return list(result.scalars().all())
 
     async def exists_by_name(self, vpn_account_name: str) -> bool:
-        stmt = select(VpnAccount.id).where(VpnAccount.vpn_account_name == vpn_account_name).limit(1)
+        """True if a non-deleted account already uses this vpn_account_name."""
+        account = await self.get_active_by_name(vpn_account_name)
+        return account is not None
+
+    async def get_active_by_name(self, vpn_account_name: str) -> VpnAccount | None:
+        stmt = (
+            select(VpnAccount)
+            .where(
+                VpnAccount.vpn_account_name == vpn_account_name,
+                *self._is_non_deleted_clause(),
+            )
+            .limit(1)
+        )
         result = await self._session.execute(stmt)
-        return result.scalar_one_or_none() is not None
+        return result.scalar_one_or_none()
+
+    async def count_deleted_by_name(self, vpn_account_name: str) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(VpnAccount)
+            .where(
+                VpnAccount.vpn_account_name == vpn_account_name,
+                or_(
+                    VpnAccount.deleted_at.is_not(None),
+                    VpnAccount.status == VpnAccountStatus.DELETED.value,
+                ),
+            )
+        )
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one())
 
     async def count_non_deleted_for_user(self, user_id: int) -> int:
         accounts = await self.list_by_user_id(user_id, include_deleted=False)

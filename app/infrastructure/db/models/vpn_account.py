@@ -15,7 +15,7 @@ class VpnAccount(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     plan_id: Mapped[int | None] = mapped_column(ForeignKey("plans.id"), nullable=True)
-    vpn_account_name: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    vpn_account_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     status: Mapped[str] = mapped_column(

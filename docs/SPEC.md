@@ -197,7 +197,7 @@ If the customer already has an **active** VPN and selects a **paid** tariff:
 
 Free plan remains blocked when the user already has active VPN or used free plan once.
 
-`vpn_accounts`: optional `display_name`, `is_primary` (first subscription). Global unique `vpn_account_name`.
+`vpn_accounts`: optional `display_name`, `is_primary` (first subscription). Partial unique index on `vpn_account_name` for non-deleted rows only (`deleted_at IS NULL AND status != 'deleted'`), so deleted historical names can be reused.
 
 ### Payment request receipt fields
 
