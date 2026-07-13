@@ -241,14 +241,14 @@ async def handle_admin_open_client(
     except ValueError:
         await callback.answer()
         return
-    items, total = await admin_customer_service.search_clients(str(telegram_id), page=0)
+    items, total, page = await admin_customer_service.search_clients(str(telegram_id), page=0)
     if not items:
         await callback.answer("Клиент не найден.", show_alert=True)
         return
-    text = admin_customer_service.format_search_results(str(telegram_id), items, page=0, total=total)
+    text = admin_customer_service.format_search_results(str(telegram_id), items, page=page, total=total)
     from app.presentation.keyboards.admin_clients import search_results_keyboard
 
-    await callback.message.answer(text, reply_markup=search_results_keyboard(items, page=0, total=total))
+    await callback.message.answer(text, reply_markup=search_results_keyboard(items, page=page, total=total))
     await callback.answer()
 
 

@@ -49,6 +49,24 @@ from app.presentation.states.admin_client import (
     AdminClientSearchStates,
 )
 
+from app.infrastructure.db.repositories.admin_customer_repo import (
+    STATUS_ACTIVE,
+    STATUS_DELETED,
+    STATUS_DISABLED,
+    STATUS_EXPIRED,
+    STATUS_EXPIRING_SOON,
+)
+
+VALID_STATUS_FILTERS = frozenset(
+    {
+        STATUS_ACTIVE,
+        STATUS_EXPIRED,
+        STATUS_DISABLED,
+        STATUS_DELETED,
+        STATUS_EXPIRING_SOON,
+    },
+)
+
 logger = logging.getLogger(__name__)
 
 router = Router(name="admin_clients")
@@ -99,18 +117,17 @@ async def handle_clients_filter(
     if callback.data is None or callback.message is None:
         await callback.answer()
         return
-    parsed = _parse_filter_page(callback.data, ACL_FILTER_PREFIX)
+    parsed = _parse_list_callback(callback.data, ACL_FILTER_PREFIX)
     if parsed is None:
         await callback.answer("Некорректный фильтр.", show_alert=True)
         return
     status_filter, page = parsed
-    items, total = await admin_customer_service.list_clients(status_filter, page=page)
-    text = admin_customer_service.format_client_list(status_filter, items, page=page, total=total)
-    await callback.message.edit_text(
-        text,
-        reply_markup=client_list_keyboard(status_filter, items, page=page, total=total),
+    await _render_client_list(
+        callback,
+        admin_customer_service,
+        status_filter=status_filter,
+        page=page,
     )
-    await callback.answer()
 
 
 @router.callback_query(F.data.startswith(ACL_PAGE_PREFIX))
@@ -118,7 +135,20 @@ async def handle_clients_page(
     callback: CallbackQuery,
     admin_customer_service: AdminCustomerService,
 ) -> None:
-    await handle_clients_filter(callback, admin_customer_service)
+    if callback.data is None or callback.message is None:
+        await callback.answer()
+        return
+    parsed = _parse_list_callback(callback.data, ACL_PAGE_PREFIX)
+    if parsed is None:
+        await callback.answer("Некорректная страница.", show_alert=True)
+        return
+    status_filter, page = parsed
+    await _render_client_list(
+        callback,
+        admin_customer_service,
+        status_filter=status_filter,
+        page=page,
+    )
 
 
 @router.callback_query(F.data.startswith(ACL_PAGE_INFO_PREFIX))
@@ -144,7 +174,7 @@ async def handle_search_page(
     if not isinstance(query, str) or not query.strip():
         await callback.answer("Поиск истёк. Введите запрос снова.", show_alert=True)
         return
-    items, total = await admin_customer_service.search_clients(query, page=page)
+    items, total, page = await admin_customer_service.search_clients(query, page=page)
     text = admin_customer_service.format_search_results(query, items, page=page, total=total)
     await callback.message.edit_text(
         text,
@@ -156,15 +186,32 @@ async def handle_search_page(
 @router.callback_query(F.data.startswith(ACL_OPEN_PREFIX) | F.data.startswith(ACL_SEARCH_RESULT_PREFIX))
 async def handle_open_client(
     callback: CallbackQuery,
+    state: FSMContext,
     admin_customer_service: AdminCustomerService,
 ) -> None:
     if callback.data is None or callback.message is None:
         await callback.answer()
         return
-    vpn_account_id = _parse_vpn_account_id(callback.data, (ACL_OPEN_PREFIX, ACL_SEARCH_RESULT_PREFIX))
-    if vpn_account_id is None:
-        await callback.answer("Некорректная подписка.", show_alert=True)
-        return
+    if callback.data.startswith(ACL_OPEN_PREFIX):
+        parsed = _parse_open_client(callback.data)
+        if parsed is None:
+            await callback.answer("Некорректная подписка.", show_alert=True)
+            return
+        vpn_account_id, list_filter, list_page, search_page = parsed
+    else:
+        parsed = _parse_search_open(callback.data)
+        if parsed is None:
+            await callback.answer("Некорректная подписка.", show_alert=True)
+            return
+        vpn_account_id, search_page = parsed
+        list_filter, list_page = None, None
+
+    await state.update_data(
+        acl_list_filter=list_filter,
+        acl_list_page=list_page,
+        acl_search_page=search_page,
+    )
+
     try:
         card = await admin_customer_service.get_client_card(vpn_account_id)
     except PaymentRequestNotFoundError as exc:
@@ -176,6 +223,9 @@ async def handle_open_client(
         reply_markup=client_card_keyboard(
             vpn_account_id,
             is_deleted=card.is_deleted,
+            list_filter=list_filter,
+            list_page=list_page,
+            search_page=search_page,
         ),
     )
     await callback.answer()
@@ -205,17 +255,17 @@ async def handle_search_query(
     if not query:
         await message.answer("Введите непустой запрос.")
         return
-    items, total = await admin_customer_service.search_clients(query, page=0)
+    items, total, page = await admin_customer_service.search_clients(query, page=0)
     if total == 0:
         await state.clear()
         await message.answer("Ничего не найдено.", reply_markup=clients_dashboard_keyboard())
         return
     await state.update_data(search_query=query)
     await state.set_state(AdminClientSearchStates.viewing_results)
-    text = admin_customer_service.format_search_results(query, items, page=0, total=total)
+    text = admin_customer_service.format_search_results(query, items, page=page, total=total)
     await message.answer(
         text,
-        reply_markup=search_results_keyboard(items, page=0, total=total),
+        reply_markup=search_results_keyboard(items, page=page, total=total),
     )
 
 
@@ -301,6 +351,7 @@ async def handle_delete_confirm(
 @router.callback_query(F.data.startswith(ACL_CANCEL_CONFIRM))
 async def handle_confirm_cancel(
     callback: CallbackQuery,
+    state: FSMContext,
     admin_customer_service: AdminCustomerService,
 ) -> None:
     if callback.data is None or callback.message is None:
@@ -315,11 +366,24 @@ async def handle_confirm_cancel(
     except PaymentRequestNotFoundError:
         await callback.answer()
         return
+    data = await state.get_data()
+    list_filter = data.get("acl_list_filter")
+    list_page = data.get("acl_list_page")
+    search_page = data.get("acl_search_page")
+    if list_filter is not None and not isinstance(list_filter, str):
+        list_filter = None
+    if list_page is not None and not isinstance(list_page, int):
+        list_page = None
+    if search_page is not None and not isinstance(search_page, int):
+        search_page = None
     await callback.message.edit_text(
         admin_customer_service.format_client_card(card),
         reply_markup=client_card_keyboard(
             vpn_account_id,
             is_deleted=card.is_deleted,
+            list_filter=list_filter,
+            list_page=list_page,
+            search_page=search_page,
         ),
     )
     await callback.answer("Отменено.")
@@ -501,6 +565,71 @@ async def _prompt_confirm(
         return
     await callback.message.answer(text, reply_markup=keyboard_factory(vpn_account_id))
     await callback.answer()
+
+
+async def _render_client_list(
+    callback: CallbackQuery,
+    admin_customer_service: AdminCustomerService,
+    *,
+    status_filter: str,
+    page: int,
+) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    items, total, page = await admin_customer_service.list_clients(status_filter, page=page)
+    text = admin_customer_service.format_client_list(status_filter, items, page=page, total=total)
+    await callback.message.edit_text(
+        text,
+        reply_markup=client_list_keyboard(status_filter, items, page=page, total=total),
+    )
+    await callback.answer()
+
+
+def _parse_list_callback(data: str, prefix: str) -> tuple[str, int] | None:
+    parsed = _parse_filter_page(data, prefix)
+    if parsed is None:
+        return None
+    status_filter, page = parsed
+    if status_filter not in VALID_STATUS_FILTERS:
+        return None
+    return status_filter, page
+
+
+def _parse_open_client(data: str) -> tuple[int, str | None, int | None, int | None] | None:
+    if not data.startswith(ACL_OPEN_PREFIX):
+        return None
+    suffix = data.removeprefix(ACL_OPEN_PREFIX)
+    parts = suffix.split(":")
+    if not parts or not parts[0].isdigit():
+        return None
+    vpn_account_id = int(parts[0])
+    if len(parts) >= 3:
+        status_filter = parts[1]
+        if status_filter not in VALID_STATUS_FILTERS:
+            return None
+        try:
+            list_page = int(parts[2])
+        except ValueError:
+            return None
+        return vpn_account_id, status_filter, list_page, None
+    return vpn_account_id, None, None, None
+
+
+def _parse_search_open(data: str) -> tuple[int, int] | None:
+    if not data.startswith(ACL_SEARCH_RESULT_PREFIX):
+        return None
+    suffix = data.removeprefix(ACL_SEARCH_RESULT_PREFIX)
+    parts = suffix.split(":")
+    if not parts or not parts[0].isdigit():
+        return None
+    vpn_account_id = int(parts[0])
+    if len(parts) >= 2:
+        try:
+            return vpn_account_id, int(parts[1])
+        except ValueError:
+            return None
+    return vpn_account_id, 0
 
 
 def _parse_vpn_account_id(data: str, prefixes: tuple[str, ...]) -> int | None:

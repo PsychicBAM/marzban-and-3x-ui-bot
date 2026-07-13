@@ -59,3 +59,13 @@ def total_pages(total: int, page_size: int) -> int:
     if total <= 0:
         return 1
     return (total + page_size - 1) // page_size
+
+
+def normalize_page(page: int, total: int, page_size: int) -> int:
+    """Clamp 0-based page index to valid range after total_pages is known."""
+    if page < 0:
+        return 0
+    pages = total_pages(total, page_size)
+    if page >= pages:
+        return max(0, pages - 1)
+    return page

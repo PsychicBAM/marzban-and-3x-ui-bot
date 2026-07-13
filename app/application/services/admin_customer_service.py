@@ -22,6 +22,7 @@ from app.infrastructure.db.models.user import User
 from app.infrastructure.db.models.vpn_account import VpnAccount
 from app.application.utils.admin_client_format import (
     format_compact_list_row,
+    normalize_page,
     total_pages,
 )
 from app.infrastructure.db.repositories.admin_customer_repo import (
@@ -82,7 +83,7 @@ class AdminCustomerService:
             deleted_vpn=counts[STATUS_DELETED],
         )
 
-    async def list_clients(self, status_filter: str, *, page: int) -> tuple[list[ClientListItem], int]:
+    async def list_clients(self, status_filter: str, *, page: int) -> tuple[list[ClientListItem], int, int]:
         now = datetime.now(UTC)
         accounts = await self._repo.list_all_accounts()
         if status_filter == STATUS_EXPIRING_SOON:
@@ -106,16 +107,22 @@ class AdminCustomerService:
             items.append((user, account))
 
         total = len(items)
+        page = normalize_page(page, total, PAGE_SIZE)
         start = page * PAGE_SIZE
         page_items = items[start : start + PAGE_SIZE]
-        return [self._to_list_item(user, account, now=now) for user, account in page_items], total
+        return [self._to_list_item(user, account, now=now) for user, account in page_items], total, page
 
-    async def search_clients(self, query: str, *, page: int = 0) -> tuple[list[ClientListItem], int]:
+    async def search_clients(self, query: str, *, page: int = 0) -> tuple[list[ClientListItem], int, int]:
         now = datetime.now(UTC)
-        offset = page * PAGE_SIZE
+        requested_page = page
+        offset = requested_page * PAGE_SIZE
         pairs, total = await self._repo.search_accounts(query, offset=offset, limit=PAGE_SIZE)
+        page = normalize_page(requested_page, total, PAGE_SIZE)
+        if page != requested_page:
+            offset = page * PAGE_SIZE
+            pairs, total = await self._repo.search_accounts(query, offset=offset, limit=PAGE_SIZE)
         items = [self._to_list_item(user, account, now=now) for user, account in pairs]
-        return items, total
+        return items, total, page
 
     async def get_client_card(self, vpn_account_id: int) -> ClientCardInfo:
         account = await self._uow.vpn_accounts.get_by_id(vpn_account_id)

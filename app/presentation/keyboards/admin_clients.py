@@ -71,7 +71,7 @@ def client_list_keyboard(
         [
             InlineKeyboardButton(
                 text=format_compact_button_label(start_index + offset, item),
-                callback_data=f"{ACL_OPEN_PREFIX}{item.vpn_account_id}",
+                callback_data=f"{ACL_OPEN_PREFIX}{item.vpn_account_id}:{status_filter}:{page}",
             )
         ]
         for offset, item in enumerate(items, start=1)
@@ -92,7 +92,7 @@ def search_results_keyboard(
         [
             InlineKeyboardButton(
                 text=format_compact_button_label(start_index + offset, item),
-                callback_data=f"{ACL_SEARCH_RESULT_PREFIX}{item.vpn_account_id}",
+                callback_data=f"{ACL_SEARCH_RESULT_PREFIX}{item.vpn_account_id}:{page}",
             )
         ]
         for offset, item in enumerate(items, start=1)
@@ -137,11 +137,25 @@ def _pagination_row(
     return row
 
 
-def client_card_keyboard(vpn_account_id: int, *, is_deleted: bool) -> InlineKeyboardMarkup:
+def client_card_keyboard(
+    vpn_account_id: int,
+    *,
+    is_deleted: bool,
+    list_filter: str | None = None,
+    list_page: int | None = None,
+    search_page: int | None = None,
+) -> InlineKeyboardMarkup:
+    if search_page is not None:
+        back_callback = f"{ACL_SEARCH_PAGE_PREFIX}search:{search_page}"
+    elif list_filter is not None and list_page is not None:
+        back_callback = f"{ACL_PAGE_PREFIX}{list_filter}:{list_page}"
+    else:
+        back_callback = ACL_DASH
+
     if is_deleted:
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="🏠 Назад", callback_data=ACL_DASH)],
+                [InlineKeyboardButton(text="🏠 Назад", callback_data=back_callback)],
             ],
         )
 
@@ -183,7 +197,7 @@ def client_card_keyboard(vpn_account_id: int, *, is_deleted: bool) -> InlineKeyb
                 InlineKeyboardButton(
                     text="🧹 Очистить IP",
                     callback_data=f"{ACL_ACT_CLEAR}{vpn_account_id}",
-                ),
+                )
             ],
             [
                 InlineKeyboardButton(
@@ -191,7 +205,7 @@ def client_card_keyboard(vpn_account_id: int, *, is_deleted: bool) -> InlineKeyb
                     callback_data=f"{ACL_ACT_DELETE}{vpn_account_id}",
                 )
             ],
-            [InlineKeyboardButton(text="🏠 Назад", callback_data=ACL_DASH)],
+            [InlineKeyboardButton(text="🏠 Назад", callback_data=back_callback)],
         ],
     )
 
