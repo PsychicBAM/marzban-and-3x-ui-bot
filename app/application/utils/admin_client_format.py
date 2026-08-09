@@ -39,20 +39,54 @@ def format_compact_list_row(index: int, item: ClientListItem) -> str:
     label = subscription_short_label(item.subscription_display_name, item.vpn_account_name)
     expiry = item.expiry_at.strftime("%d.%m") if item.expiry_at else "—"
     badge = panel_badge_short(item.has_marzban, item.has_xui)
+    customer = format_admin_customer_handle(
+        full_name=item.customer_name,
+        username=item.username,
+        telegram_id=item.telegram_id,
+    )
     return (
-        f"{index}) 👤 {item.customer_name} · 🔑 {label}\n"
+        f"{index}) 👤 {customer} · 🔑 {label}\n"
         f"   до {expiry} · {badge}"
     )
 
 
 def format_compact_button_label(index: int, item: ClientListItem) -> str:
-    short_customer = customer_short_name(item.customer_name)
+    short_customer = customer_short_name(
+        format_admin_customer_handle(
+            full_name=item.customer_name,
+            username=item.username,
+            telegram_id=item.telegram_id,
+            compact=True,
+        ),
+        max_len=18,
+    )
     short_label = subscription_short_label(
         item.subscription_display_name,
         item.vpn_account_name,
         max_len=12,
     )
     return _truncate(f"{index}. {short_customer} · {short_label}", 64)
+
+
+def format_admin_customer_handle(
+    *,
+    full_name: str | None,
+    username: str | None,
+    telegram_id: int,
+    compact: bool = False,
+) -> str:
+    """Admin-facing customer label that never shows a blank @username."""
+    name = (full_name or "").strip() or "Пользователь"
+    if username:
+        handle = f"@{username.lstrip('@')}"
+        if compact:
+            return handle
+        return f"{name} ({handle})"
+    if compact:
+        first = name.split()[0] if name else "ID"
+        return f"{first} · {telegram_id}"
+    return f"{name} · ID {telegram_id}"
+
 
 
 def total_pages(total: int, page_size: int) -> int:

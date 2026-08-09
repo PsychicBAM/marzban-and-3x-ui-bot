@@ -99,6 +99,16 @@ async def handle_plan_selected(
         return
 
     if plan_service.is_free(plan):
+        ready = await _ensure_primary_vpn_name_or_ask(
+            callback,
+            state,
+            subscription_purchase_service,
+            plan_id=plan.id,
+            pending_action="free",
+            lang=lang,
+        )
+        if not ready:
+            return
         text = plan_service.format_free_plan_checkout(
             plan_details=plan_service.format_plan_details(plan),
         )
@@ -116,8 +126,91 @@ async def handle_plan_selected(
         await callback.answer()
         return
 
+    ready = await _ensure_primary_vpn_name_or_ask(
+        callback,
+        state,
+        subscription_purchase_service,
+        plan_id=plan.id,
+        pending_action="checkout",
+        lang=lang,
+    )
+    if not ready:
+        return
+
     await _show_standard_checkout(callback.message, state, plan=plan, lang=lang)
     await callback.answer()
+
+
+@router.message(StateFilter(PurchaseSubscriptionStates.waiting_vpn_base_name), F.text, ~F.text.startswith("/"))
+async def handle_vpn_base_name_input(
+    message: Message,
+    state: FSMContext,
+    plan_service: PlanService,
+    subscription_purchase_service: SubscriptionPurchaseService,
+    lang: str,
+) -> None:
+    if message.from_user is None or message.text is None:
+        return
+
+    data = await state.get_data()
+    plan_id = data.get("plan_id")
+    pending_action = data.get("pending_vpn_name_action")
+    if not isinstance(plan_id, int) or pending_action not in {"checkout", "free", "separate"}:
+        await state.clear()
+        await message.answer(t(lang, "common.session_expired_purchase"), reply_markup=customer_main_keyboard(lang))
+        return
+
+    plan = await plan_service.get_active_plan(plan_id)
+    if plan is None:
+        await state.clear()
+        await message.answer(t(lang, "common.plan_unavailable"), reply_markup=customer_main_keyboard(lang))
+        return
+
+    try:
+        user = await subscription_purchase_service.get_user(message.from_user.id)
+        account_name = await subscription_purchase_service.assign_primary_vpn_account_name(
+            user,
+            message.text,
+        )
+    except VpnPanelValidationError:
+        await message.answer(
+            t(lang, "purchase.vpn_name_invalid"),
+            parse_mode=CUSTOMER_PARSE_MODE,
+        )
+        return
+    except PaymentRequestNotFoundError as exc:
+        await state.clear()
+        await message.answer(exc.message, reply_markup=customer_main_keyboard(lang))
+        return
+
+    await state.update_data(pending_vpn_name_action=None)
+
+    if pending_action == "separate":
+        await state.set_state(PurchaseSubscriptionStates.waiting_label)
+        await message.answer(
+            f"✅ VPN: <code>{account_name}</code>\n\n{t(lang, 'purchase.separate_name')}",
+            parse_mode=CUSTOMER_PARSE_MODE,
+        )
+        return
+
+    await state.set_state(None)
+
+    if pending_action == "free":
+        text = plan_service.format_free_plan_checkout(
+            plan_details=plan_service.format_plan_details(plan),
+        )
+        await message.answer(
+            f"✅ VPN: <code>{account_name}</code>\n\n{text}",
+            reply_markup=purchase_free_keyboard(plan.id),
+            parse_mode=CUSTOMER_PARSE_MODE,
+        )
+        return
+
+    await message.answer(
+        f"✅ VPN: <code>{account_name}</code>",
+        parse_mode=CUSTOMER_PARSE_MODE,
+    )
+    await _show_standard_checkout(message, state, plan=plan, lang=lang)
 
 
 @router.callback_query(F.data.startswith(PURCHASE_CHOICE_RENEW_PREFIX))
@@ -215,6 +308,7 @@ async def handle_purchase_choice_separate(
     callback: CallbackQuery,
     state: FSMContext,
     plan_service: PlanService,
+    subscription_purchase_service: SubscriptionPurchaseService,
     admin_log_service: AdminLogService,
     lang: str,
 ) -> None:
@@ -232,6 +326,23 @@ async def handle_purchase_choice_separate(
         await callback.answer(t(lang, "common.plan_unavailable"), show_alert=True)
         return
 
+    try:
+        user = await subscription_purchase_service.get_user(callback.from_user.id)
+        primary = await subscription_purchase_service.ensure_primary_vpn_account_name(user)
+    except PaymentRequestNotFoundError as exc:
+        await callback.answer(exc.message, show_alert=True)
+        return
+
+    if primary is None:
+        await state.update_data(plan_id=plan.id, pending_vpn_name_action="separate")
+        await state.set_state(PurchaseSubscriptionStates.waiting_vpn_base_name)
+        await callback.message.answer(
+            t(lang, "purchase.need_vpn_name"),
+            parse_mode=CUSTOMER_PARSE_MODE,
+        )
+        await callback.answer()
+        return
+
     await admin_log_service.log(
         admin_telegram_id=callback.from_user.id,
         action=AdminActionType.SEPARATE_SUBSCRIPTION_SELECTED,
@@ -239,7 +350,7 @@ async def handle_purchase_choice_separate(
     )
     await state.update_data(plan_id=plan_id)
     await state.set_state(PurchaseSubscriptionStates.waiting_label)
-    await callback.message.answer(t(lang, "purchase.separate_name"))
+    await callback.message.answer(t(lang, "purchase.separate_name"), parse_mode=CUSTOMER_PARSE_MODE)
     await callback.answer()
 
 
@@ -322,11 +433,11 @@ async def handle_free_plan_activate(
     plan_service: PlanService,
     free_plan_activation_service: FreePlanActivationService,
     provisioning_notification_service: ProvisioningNotificationService,
+    subscription_purchase_service: SubscriptionPurchaseService,
     admin_log_service: AdminLogService,
     settings: Settings,
     lang: str,
 ) -> None:
-    await state.clear()
     if callback.data is None or callback.from_user is None or callback.message is None:
         await callback.answer()
         return
@@ -342,6 +453,19 @@ async def handle_free_plan_activate(
     if plan is None or not plan_service.is_free(plan):
         await callback.answer(t(lang, "common.plan_unavailable"), show_alert=True)
         return
+
+    ready = await _ensure_primary_vpn_name_or_ask(
+        callback,
+        state,
+        subscription_purchase_service,
+        plan_id=plan.id,
+        pending_action="free",
+        lang=lang,
+    )
+    if not ready:
+        return
+
+    await state.clear()
 
     try:
         outcome = await free_plan_activation_service.activate(
@@ -748,3 +872,42 @@ def _parse_plan_and_account(data: str, prefix: str) -> tuple[int, int] | None:
         return int(parts[0]), int(parts[1])
     except ValueError:
         return None
+
+
+async def _ensure_primary_vpn_name_or_ask(
+    callback: CallbackQuery,
+    state: FSMContext,
+    subscription_purchase_service: SubscriptionPurchaseService,
+    *,
+    plan_id: int,
+    pending_action: str,
+    lang: str,
+) -> bool:
+    """
+    Ensure primary VPN account name exists.
+
+    Returns True when checkout/activation can continue.
+    Returns False when the customer was asked to enter a base name.
+    """
+    if callback.from_user is None or callback.message is None:
+        await callback.answer()
+        return False
+
+    try:
+        user = await subscription_purchase_service.get_user(callback.from_user.id)
+        primary = await subscription_purchase_service.ensure_primary_vpn_account_name(user)
+    except PaymentRequestNotFoundError as exc:
+        await callback.answer(exc.message, show_alert=True)
+        return False
+
+    if primary is not None:
+        return True
+
+    await state.update_data(plan_id=plan_id, pending_vpn_name_action=pending_action)
+    await state.set_state(PurchaseSubscriptionStates.waiting_vpn_base_name)
+    await callback.message.answer(
+        t(lang, "purchase.need_vpn_name"),
+        parse_mode=CUSTOMER_PARSE_MODE,
+    )
+    await callback.answer()
+    return False

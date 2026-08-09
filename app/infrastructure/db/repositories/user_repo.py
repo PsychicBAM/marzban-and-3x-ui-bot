@@ -85,10 +85,20 @@ class UserRepository:
         last_name: str | None,
         is_admin: bool,
     ) -> User:
-        user.username = username
-        user.first_name = first_name
-        user.last_name = last_name
+        # Do not overwrite useful profile fields with empty Telegram values.
+        if username:
+            user.username = username
+        if first_name:
+            user.first_name = first_name
+        if last_name:
+            user.last_name = last_name
         user.is_admin = is_admin
+        await self._session.flush()
+        await self._session.refresh(user)
+        return user
+
+    async def set_vpn_account_name(self, user: User, vpn_account_name: str) -> User:
+        user.vpn_account_name = vpn_account_name
         await self._session.flush()
         await self._session.refresh(user)
         return user

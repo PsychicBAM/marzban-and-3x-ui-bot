@@ -5,7 +5,11 @@ from typing import Any
 
 from app.application.dto.manual_provision import ManualProvisionRequest, ManualProvisionResult, ProvisionProfile
 from app.application.services.plan_service import ISSUING_MODE_LABELS, PlanService
-from app.application.utils.vpn_username import normalize_from_telegram_username, normalize_vpn_account_name
+from app.application.utils.vpn_username import (
+    build_primary_vpn_account_name,
+    normalize_from_telegram_username,
+    normalize_vpn_account_name,
+)
 from app.domain.enums import IssuingMode
 from app.infrastructure.db.models.user import User
 from app.infrastructure.db.uow import UnitOfWork
@@ -27,7 +31,13 @@ class ManualKeyFlowService:
                 return normalize_vpn_account_name(user.vpn_account_name)
             except Exception:
                 return None
-        return normalize_from_telegram_username(user.username)
+        normalized = normalize_from_telegram_username(user.username)
+        if normalized:
+            try:
+                return build_primary_vpn_account_name(normalized, user.telegram_id)
+            except Exception:
+                return normalized
+        return None
 
     def validate_account_name(self, raw: str) -> str:
         return normalize_vpn_account_name(raw)

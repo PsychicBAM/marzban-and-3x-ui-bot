@@ -136,6 +136,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Примеры: <code>grandma</code>, <code>phone</code>, <code>work</code>\n"
             "/cancel для отмены"
         ),
+        "purchase.need_vpn_name": (
+            "У вас нет Telegram @username. Напишите имя для VPN латиницей, "
+            "например: <code>abdallah</code>\n\n"
+            "/cancel для отмены"
+        ),
+        "purchase.vpn_name_invalid": (
+            "Имя VPN может содержать только латинские буквы, цифры и _.\n"
+            "Примеры: <code>abdallah</code>, <code>mohamed</code>, <code>work_phone</code>"
+        ),
         "purchase.invalid_receipt": (
             "Пожалуйста, отправьте <b>фото</b> или <b>документ</b> с чеком об оплате.\n"
             "Если не можете прикрепить файл — отправьте текстовый комментарий."
@@ -484,6 +493,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "✏️ Enter a name for the new subscription in <b>Latin letters</b>.\n\n"
             "Examples: <code>grandma</code>, <code>phone</code>, <code>work</code>\n"
             "/cancel to cancel"
+        ),
+        "purchase.need_vpn_name": (
+            "You do not have a Telegram @username. Please enter a VPN account name "
+            "using Latin letters, for example: <code>abdallah</code>\n\n"
+            "/cancel to cancel"
+        ),
+        "purchase.vpn_name_invalid": (
+            "VPN name may contain only Latin letters, digits and _.\n"
+            "Examples: <code>abdallah</code>, <code>mohamed</code>, <code>work_phone</code>"
         ),
         "purchase.invalid_receipt": (
             "Please send a <b>photo</b> or <b>document</b> with your payment receipt.\n"

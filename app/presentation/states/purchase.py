@@ -9,3 +9,4 @@ class PurchaseReceiptStates(StatesGroup):
 
 class PurchaseSubscriptionStates(StatesGroup):
     waiting_label = State()
+    waiting_vpn_base_name = State()

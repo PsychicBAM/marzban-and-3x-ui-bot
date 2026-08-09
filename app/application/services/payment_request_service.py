@@ -344,7 +344,7 @@ class PaymentRequestService:
         lines = ["📥 <b>Заявки на проверке</b>", ""]
         for item in requests:
             request_type = resolve_request_type_label(item)
-            username = f"@{item.username}" if item.username else "—"
+            client = self._format_admin_client_handle(item)
             devices = self._format_devices(item.plan_ip_limit)
             created = self._format_datetime(item.created_at)
             duration = item.effective_duration_days or item.plan_duration_days
@@ -353,7 +353,7 @@ class PaymentRequestService:
                 amount_line = f"{item.amount:.0f} ₽ (было {item.original_amount:.0f})"
             lines.append(
                 f"<b>#{item.id}</b> · {request_type}\n"
-                f"👤 {item.user_full_name} ({username})\n"
+                f"👤 {client}\n"
                 f"🆔 <code>{item.telegram_id}</code>\n"
                 f"📦 {item.plan_name} · {amount_line} · {duration} дн.\n"
                 f"📱 {devices} · 🕐 {created}"
@@ -367,10 +367,10 @@ class PaymentRequestService:
 
         lines = ["⚠️ <b>Частичная выдача VPN</b>", ""]
         for item in requests:
-            username = f"@{item.username}" if item.username else "—"
+            client = self._format_admin_client_handle(item)
             lines.append(
                 f"<b>#{item.id}</b>\n"
-                f"👤 {item.user_full_name} ({username})\n"
+                f"👤 {client}\n"
                 f"📦 {item.plan_name} · VPN ID: {item.vpn_account_id or '—'}"
             )
             lines.append("")
@@ -381,7 +381,7 @@ class PaymentRequestService:
         devices = self._format_devices(item.plan_ip_limit)
         request_type = resolve_request_type_label(item)
         status = STATUS_LABELS.get(item.status, item.status)
-        username = f"@{item.username}" if item.username else "—"
+        username = f"@{item.username}" if item.username else f"ID {item.telegram_id}"
 
         lines = [
             f"<b>Заявка #{item.id}</b>",
@@ -458,12 +458,13 @@ class PaymentRequestService:
 
     @staticmethod
     def _format_admin_client_handle(item: PaymentRequestInfo) -> str:
-        if item.username:
-            return f"@{item.username}"
-        name = (item.user_full_name or "").strip()
-        if not name or name == "Пользователь":
-            return "Пользователь"
-        return name.split()[0]
+        from app.application.utils.admin_client_format import format_admin_customer_handle
+
+        return format_admin_customer_handle(
+            full_name=item.user_full_name,
+            username=item.username,
+            telegram_id=item.telegram_id,
+        )
 
     @staticmethod
     def _format_traffic(gb: int) -> str:

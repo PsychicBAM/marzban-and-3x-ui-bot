@@ -551,7 +551,7 @@ class AdminCustomerService:
         lines = [
             "<b>Карточка подписки</b>",
             "",
-            f"👤 Клиент: {card.full_name}",
+            f"👤 Клиент: {self._client_handle(card)}",
             f"🆔 Telegram ID: <code>{card.telegram_id}</code>",
             f"🔑 Подписка: {subscription_label}",
             f"🧩 VPN-аккаунт: <code>{card.vpn_account_name}</code>",
@@ -771,6 +771,16 @@ class AdminCustomerService:
     def _full_name(user: User) -> str:
         parts = [user.first_name, user.last_name]
         return " ".join(part for part in parts if part) or "Пользователь"
+
+    @staticmethod
+    def _client_handle(card: ClientCardInfo) -> str:
+        from app.application.utils.admin_client_format import format_admin_customer_handle
+
+        return format_admin_customer_handle(
+            full_name=card.full_name,
+            username=card.username,
+            telegram_id=card.telegram_id,
+        )
 
     @staticmethod
     def _days_left(expiry: datetime | None, now: datetime) -> int | None:

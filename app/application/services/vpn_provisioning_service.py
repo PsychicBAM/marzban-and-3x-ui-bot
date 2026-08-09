@@ -12,7 +12,7 @@ from app.application.exceptions import (
     VpnProvisioningError,
 )
 from app.application.services.expiry_calculator import ExpiryCalculator
-from app.application.utils.vpn_username import normalize_from_telegram_username, normalize_vpn_account_name
+from app.application.utils.vpn_username import normalize_vpn_account_name, resolve_primary_vpn_account_name
 from app.config.settings import Settings
 from app.domain.enums import IssuingMode, PanelType, PaymentRequestType, ProvisionAction, VpnAccountStatus
 from app.infrastructure.db.models.payment_request import PaymentRequest
@@ -26,7 +26,8 @@ from app.infrastructure.integrations.xui.service import XuiService
 logger = logging.getLogger(__name__)
 
 MISSING_USERNAME_ERROR = (
-    "У клиента нет username. Нужно добавить ручной ввод имени VPN на следующем этапе."
+    "У клиента нет имени VPN. Попросите клиента открыть «Купить VPN» "
+    "и ввести имя аккаунта латиницей, либо создайте ключ вручную."
 )
 
 
@@ -632,12 +633,14 @@ class VpnProvisioningService:
         )
 
     def _resolve_account_name(self, user: User) -> str:
-        if user.vpn_account_name:
-            return normalize_vpn_account_name(user.vpn_account_name)
-        normalized = normalize_from_telegram_username(user.username)
-        if normalized is None:
+        resolved = resolve_primary_vpn_account_name(
+            vpn_account_name=user.vpn_account_name,
+            username=user.username,
+            telegram_id=user.telegram_id,
+        )
+        if resolved is None:
             raise VpnProvisioningError(MISSING_USERNAME_ERROR)
-        return normalized
+        return resolved
 
     async def _assert_vpn_account_name_available(self, account_name: str) -> None:
         logger.info(
